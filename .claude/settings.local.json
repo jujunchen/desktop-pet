@@ -12,7 +12,14 @@
       "Bash(xargs kill *)",
       "Bash(/Users/chenjujun/LLM/desktp-pet/src-tauri/target/debug/desktop-pet *)",
       "Bash(killall desktop-pet *)",
-      "Bash(git rm *)"
+      "Bash(git rm *)",
+      "Bash(ffprobe *)",
+      "Bash(ffmpeg -y -i \"sitting.2026-04-23 11_44_38.gif\" -vframes 1 /tmp/gif_first_frame.png)",
+      "Bash(ffmpeg -y -i src/assets/pets/dog/sitting.gif -vframes 1 /tmp/existing_first_frame.png)",
+      "Bash(xargs ls *)",
+      "Bash(npx vue-tsc *)",
+      "Bash(npx tsc *)",
+      "Bash(pkill -f \"vite\")"
     ]
   }
 }

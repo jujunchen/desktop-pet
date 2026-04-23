@@ -4,17 +4,26 @@ use config::WindowConfig;
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    Emitter, Manager, Position, Size,
+    window::Color,
+    Emitter, LogicalPosition, Manager, Position, Size, WebviewUrl, WebviewWindowBuilder,
 };
 
 const BASE_SIZE: f64 = 180.0;
-const SCALE_MIN: f64 = 0.5;
-const SCALE_MAX: f64 = 3.0;
+const SCALE_MIN: f64 = 0.1;
+const SCALE_MAX: f64 = 1.0;
+const SETTINGS_LABEL: &str = "settings";
+const MENU_SHOW: &str = "show";
+const MENU_HIDE: &str = "hide";
+const MENU_SETTINGS: &str = "settings";
+const MENU_QUIT: &str = "quit";
+const EVT_SCALE_CHANGED: &str = "m1://scale-changed";
 
 #[tauri::command]
-fn save_window_scale(scale: f64) -> Result<(), String> {
+fn save_window_scale(app: tauri::AppHandle, scale: f64) -> Result<(), String> {
     let normalized = scale.clamp(SCALE_MIN, SCALE_MAX);
-    WindowConfig { scale: normalized }.save()
+    WindowConfig { scale: normalized }.save()?;
+    app.emit(EVT_SCALE_CHANGED, normalized)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -41,7 +50,85 @@ fn show_main_window(app: tauri::AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 fn open_settings(app: tauri::AppHandle) -> Result<(), String> {
-    app.emit("m1://open-settings", ()).map_err(|e| e.to_string())
+    ensure_settings_window(&app)
+}
+
+#[tauri::command]
+fn set_main_window_scale(app: tauri::AppHandle, scale: f64) -> Result<(), String> {
+    let normalized = scale.clamp(SCALE_MIN, SCALE_MAX);
+    WindowConfig { scale: normalized }.save()?;
+    if let Some(main) = app.get_webview_window("main") {
+        apply_window_scale(&main, normalized)?;
+    }
+    app.emit(EVT_SCALE_CHANGED, normalized)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn show_pet_context_menu(app: tauri::AppHandle, x: f64, y: f64) -> Result<(), String> {
+    let window = app
+        .get_webview_window("main")
+        .ok_or("main window not found")?;
+    let menu = build_pet_context_menu(&app).map_err(|e| e.to_string())?;
+    window
+        .popup_menu_at(&menu, Position::Logical(LogicalPosition::new(x, y)))
+        .map_err(|e| e.to_string())
+}
+
+fn ensure_settings_window(app: &tauri::AppHandle) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window(SETTINGS_LABEL) {
+        window.show().map_err(|e| e.to_string())?;
+        window.set_focus().map_err(|e| e.to_string())?;
+        return Ok(());
+    }
+
+    WebviewWindowBuilder::new(
+        app,
+        SETTINGS_LABEL,
+        WebviewUrl::App("index.html?window=settings".into()),
+    )
+    .title("设置")
+    .inner_size(360.0, 220.0)
+    .resizable(false)
+    .minimizable(false)
+    .maximizable(false)
+    .always_on_top(true)
+    .skip_taskbar(true)
+    .build()
+    .map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
+fn build_pet_context_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
+    let hide_i = MenuItem::with_id(app, MENU_HIDE, "隐藏宠物", true, None::<&str>)?;
+    let settings_i = MenuItem::with_id(app, MENU_SETTINGS, "设置", true, None::<&str>)?;
+    let quit_i = MenuItem::with_id(app, MENU_QUIT, "退出", true, None::<&str>)?;
+    Menu::with_items(app, &[&hide_i, &settings_i, &quit_i])
+}
+
+fn handle_menu_action(app: &tauri::AppHandle, id: &str) {
+    let window = app.get_webview_window("main");
+    match id {
+        MENU_SHOW => {
+            if let Some(w) = window {
+                let _ = w.show();
+                let _ = w.set_focus();
+            }
+        }
+        MENU_HIDE => {
+            if let Some(w) = window {
+                let _ = w.hide();
+            }
+        }
+        MENU_SETTINGS => {
+            let _ = ensure_settings_window(app);
+        }
+        MENU_QUIT => {
+            app.exit(0);
+        }
+        _ => {}
+    }
 }
 
 fn apply_window_scale(window: &tauri::WebviewWindow, scale: f64) -> Result<(), String> {
@@ -52,54 +139,36 @@ fn apply_window_scale(window: &tauri::WebviewWindow, scale: f64) -> Result<(), S
 }
 
 fn build_tray(app: &tauri::App) -> tauri::Result<()> {
-    let show_i = MenuItem::with_id(app, "show", "显示宠物", true, None::<&str>)?;
-    let hide_i = MenuItem::with_id(app, "hide", "隐藏宠物", true, None::<&str>)?;
-    let settings_i = MenuItem::with_id(app, "settings", "设置", true, None::<&str>)?;
-    let quit_i = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
+    let show_i = MenuItem::with_id(app, MENU_SHOW, "显示宠物", true, None::<&str>)?;
+    let hide_i = MenuItem::with_id(app, MENU_HIDE, "隐藏宠物", true, None::<&str>)?;
+    let settings_i = MenuItem::with_id(app, MENU_SETTINGS, "设置", true, None::<&str>)?;
+    let quit_i = MenuItem::with_id(app, MENU_QUIT, "退出", true, None::<&str>)?;
 
     let menu = Menu::with_items(app, &[&show_i, &hide_i, &settings_i, &quit_i])?;
 
-    let tray = TrayIconBuilder::new().menu(&menu).on_menu_event(|app, event| {
-        let window = app.get_webview_window("main");
-        match event.id.as_ref() {
-            "show" => {
-                if let Some(w) = window {
-                    let _ = w.show();
-                    let _ = w.set_focus();
+    let tray = TrayIconBuilder::new()
+        .menu(&menu)
+        .on_menu_event(|app, event| {
+            handle_menu_action(app, event.id.as_ref());
+        })
+        .on_tray_icon_event(|tray, event| {
+            if let TrayIconEvent::Click {
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                ..
+            } = event
+            {
+                if let Some(window) = tray.app_handle().get_webview_window("main") {
+                    let visible = window.is_visible().unwrap_or(true);
+                    if visible {
+                        let _ = window.hide();
+                    } else {
+                        let _ = window.show();
+                        let _ = window.set_focus();
+                    }
                 }
             }
-            "hide" => {
-                if let Some(w) = window {
-                    let _ = w.hide();
-                }
-            }
-            "settings" => {
-                let _ = app.emit("m1://open-settings", ());
-            }
-            "quit" => {
-                app.exit(0);
-            }
-            _ => {}
-        }
-    })
-    .on_tray_icon_event(|tray, event| {
-        if let TrayIconEvent::Click {
-            button: MouseButton::Left,
-            button_state: MouseButtonState::Up,
-            ..
-        } = event
-        {
-            if let Some(window) = tray.app_handle().get_webview_window("main") {
-                let visible = window.is_visible().unwrap_or(true);
-                if visible {
-                    let _ = window.hide();
-                } else {
-                    let _ = window.show();
-                    let _ = window.set_focus();
-                }
-            }
-        }
-    });
+        });
 
     tray.build(app)?;
     Ok(())
@@ -113,7 +182,9 @@ pub fn run() {
             load_window_scale,
             hide_main_window,
             show_main_window,
-            open_settings
+            open_settings,
+            set_main_window_scale,
+            show_pet_context_menu
         ])
         .setup(|app| {
             build_tray(app)?;
@@ -121,6 +192,7 @@ pub fn run() {
             let window = app
                 .get_webview_window("main")
                 .ok_or("main window not found")?;
+            let _ = window.set_background_color(Some(Color(0, 0, 0, 0)));
 
             let conf = WindowConfig::load();
             apply_window_scale(&window, conf.scale)?;
@@ -136,6 +208,9 @@ pub fn run() {
             }
 
             Ok(())
+        })
+        .on_menu_event(|app, event| {
+            handle_menu_action(app, event.id.as_ref());
         })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
