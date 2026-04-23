@@ -2,7 +2,6 @@
 
 use config::WindowConfig;
 use tauri::{
-    image::Image,
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     Emitter, Manager, Position, Size,
@@ -60,8 +59,7 @@ fn build_tray(app: &tauri::App) -> tauri::Result<()> {
 
     let menu = Menu::with_items(app, &[&show_i, &hide_i, &settings_i, &quit_i])?;
 
-    let icon = Image::from_path("icons/icon.png").ok();
-    let mut tray = TrayIconBuilder::new().menu(&menu).on_menu_event(|app, event| {
+    let tray = TrayIconBuilder::new().menu(&menu).on_menu_event(|app, event| {
         let window = app.get_webview_window("main");
         match event.id.as_ref() {
             "show" => {
@@ -102,10 +100,6 @@ fn build_tray(app: &tauri::App) -> tauri::Result<()> {
             }
         }
     });
-
-    if let Some(i) = icon {
-        tray = tray.icon(i);
-    }
 
     tray.build(app)?;
     Ok(())

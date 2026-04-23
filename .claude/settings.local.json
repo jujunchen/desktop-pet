@@ -6,7 +6,13 @@
       "Bash(npm --version)",
       "Bash(cargo --version)",
       "Bash(curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs)",
-      "Bash(sh -s -- -y)"
+      "Bash(sh -s -- -y)",
+      "Bash(pkill -f \"tauri dev\")",
+      "Bash(lsof -ti:1420)",
+      "Bash(xargs kill *)",
+      "Bash(/Users/chenjujun/LLM/desktp-pet/src-tauri/target/debug/desktop-pet *)",
+      "Bash(killall desktop-pet *)",
+      "Bash(git rm *)"
     ]
   }
 }
