@@ -7,6 +7,10 @@ use tauri::{
     window::Color,
     Emitter, LogicalPosition, Manager, Position, Size, WebviewUrl, WebviewWindowBuilder,
 };
+#[cfg(target_os = "windows")]
+use windows_sys::Win32::System::SystemInformation::GetTickCount;
+#[cfg(target_os = "windows")]
+use windows_sys::Win32::UI::Input::KeyboardAndMouse::{GetLastInputInfo, LASTINPUTINFO};
 
 const BASE_SIZE: f64 = 180.0;
 const SCALE_MIN: f64 = 0.1;
@@ -73,6 +77,29 @@ fn show_pet_context_menu(app: tauri::AppHandle, x: f64, y: f64) -> Result<(), St
     window
         .popup_menu_at(&menu, Position::Logical(LogicalPosition::new(x, y)))
         .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn get_system_idle_ms() -> Result<u64, String> {
+    #[cfg(target_os = "windows")]
+    {
+        let mut info = LASTINPUTINFO {
+            cbSize: std::mem::size_of::<LASTINPUTINFO>() as u32,
+            dwTime: 0,
+        };
+
+        let ok = unsafe { GetLastInputInfo(&mut info as *mut LASTINPUTINFO) };
+        if ok == 0 {
+            return Err("GetLastInputInfo failed".to_string());
+        }
+
+        let now = unsafe { GetTickCount() };
+        let idle = now.wrapping_sub(info.dwTime) as u64;
+        return Ok(idle);
+    }
+
+    #[allow(unreachable_code)]
+    Err("get_system_idle_ms is only supported on Windows".to_string())
 }
 
 fn ensure_settings_window(app: &tauri::AppHandle) -> Result<(), String> {
@@ -184,7 +211,8 @@ pub fn run() {
             show_main_window,
             open_settings,
             set_main_window_scale,
-            show_pet_context_menu
+            show_pet_context_menu,
+            get_system_idle_ms
         ])
         .setup(|app| {
             build_tray(app)?;

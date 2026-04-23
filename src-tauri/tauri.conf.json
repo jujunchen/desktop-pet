@@ -15,8 +15,8 @@
       {
         "label": "main",
         "title": "desktop-pet",
-        "width": 200,
-        "height": 200,
+        "width": 300,
+        "height": 300,
         "resizable": false,
         "decorations": false,
         "shadow": false,
@@ -33,8 +33,8 @@
     }
   },
   "bundle": {
-    "active": true,
+    "active": false,
     "targets": "all",
-    "icon": []
+    "icon": ["icons/128x128.png"]
   }
 }

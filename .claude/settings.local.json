@@ -19,7 +19,12 @@
       "Bash(xargs ls *)",
       "Bash(npx vue-tsc *)",
       "Bash(npx tsc *)",
-      "Bash(pkill -f \"vite\")"
+      "Bash(pkill -f \"vite\")",
+      "Bash(npm run *)",
+      "Bash(npx tauri *)",
+      "Bash(python3 -c \"print\\('python available'\\)\")",
+      "Bash(cargo check *)",
+      "Bash(python3 *)"
     ]
   }
 }
