@@ -1,8 +1,8 @@
-﻿mod config;
+mod config;
 
-use config::WindowConfig;
+use config::{load_config as load_app_config, save_config as save_app_config, AppConfig};
 use tauri::{
-    menu::{Menu, MenuItem},
+    menu::{Menu, MenuItem, Submenu},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     window::Color,
     Emitter, LogicalPosition, Manager, Position, Size, WebviewUrl, WebviewWindowBuilder,
@@ -26,18 +26,58 @@ const MENU_HIDE: &str = "hide";
 const MENU_SETTINGS: &str = "settings";
 const MENU_QUIT: &str = "quit";
 const EVT_SCALE_CHANGED: &str = "m1://scale-changed";
+const EVT_CONFIG_CHANGED: &str = "m6://config-changed";
+
+fn clamp_scale(scale: f64) -> f64 {
+    scale.clamp(SCALE_MIN, SCALE_MAX)
+}
+
+fn read_app_config_or_default() -> AppConfig {
+    match load_app_config() {
+        Ok(conf) => conf,
+        Err(_) => AppConfig::default(),
+    }
+}
+
+fn persist_scale(app: &tauri::AppHandle, scale: f64) -> Result<f64, String> {
+    let normalized = clamp_scale(scale);
+    let mut conf = read_app_config_or_default();
+    conf.pet.scale = normalized;
+    let saved = save_app_config(conf)?;
+
+    app.emit(EVT_SCALE_CHANGED, saved.pet.scale)
+        .map_err(|e| e.to_string())?;
+    app.emit(EVT_CONFIG_CHANGED, &saved)
+        .map_err(|e| e.to_string())?;
+    Ok(saved.pet.scale)
+}
 
 #[tauri::command]
 fn save_window_scale(app: tauri::AppHandle, scale: f64) -> Result<(), String> {
-    let normalized = scale.clamp(SCALE_MIN, SCALE_MAX);
-    WindowConfig { scale: normalized }.save()?;
-    app.emit(EVT_SCALE_CHANGED, normalized)
-        .map_err(|e| e.to_string())
+    let _ = persist_scale(&app, scale)?;
+    Ok(())
 }
 
 #[tauri::command]
 fn load_window_scale() -> f64 {
-    WindowConfig::load().scale.clamp(SCALE_MIN, SCALE_MAX)
+    clamp_scale(read_app_config_or_default().pet.scale)
+}
+
+#[tauri::command]
+fn load_config() -> Result<AppConfig, String> {
+    load_app_config()
+}
+
+#[tauri::command]
+fn save_config(app: tauri::AppHandle, config: AppConfig) -> Result<AppConfig, String> {
+    let saved = save_app_config(config)?;
+
+    app.emit(EVT_SCALE_CHANGED, saved.pet.scale)
+        .map_err(|e| e.to_string())?;
+    app.emit(EVT_CONFIG_CHANGED, &saved)
+        .map_err(|e| e.to_string())?;
+
+    Ok(saved)
 }
 
 #[tauri::command]
@@ -64,13 +104,11 @@ fn open_settings(app: tauri::AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 fn set_main_window_scale(app: tauri::AppHandle, scale: f64) -> Result<(), String> {
-    let normalized = scale.clamp(SCALE_MIN, SCALE_MAX);
-    WindowConfig { scale: normalized }.save()?;
+    let normalized = persist_scale(&app, scale)?;
     if let Some(main) = app.get_webview_window("main") {
         apply_window_scale(&main, normalized)?;
     }
-    app.emit(EVT_SCALE_CHANGED, normalized)
-        .map_err(|e| e.to_string())
+    Ok(())
 }
 
 #[tauri::command]
@@ -131,9 +169,9 @@ fn ensure_settings_window(app: &tauri::AppHandle) -> Result<(), String> {
         WebviewUrl::App("index.html?window=settings".into()),
     )
     .title("设置")
-    .inner_size(360.0, 220.0)
-    .resizable(false)
-    .minimizable(false)
+    .inner_size(520.0, 640.0)
+    .resizable(true)
+    .minimizable(true)
     .maximizable(false)
     .always_on_top(true)
     .skip_taskbar(true)
@@ -148,6 +186,14 @@ fn build_pet_context_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::W
     let settings_i = MenuItem::with_id(app, MENU_SETTINGS, "设置", true, None::<&str>)?;
     let quit_i = MenuItem::with_id(app, MENU_QUIT, "退出", true, None::<&str>)?;
     Menu::with_items(app, &[&hide_i, &settings_i, &quit_i])
+}
+
+#[cfg(target_os = "macos")]
+fn build_macos_app_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
+    let settings_i = MenuItem::with_id(app, MENU_SETTINGS, "设置", true, None::<&str>)?;
+    let quit_i = MenuItem::with_id(app, MENU_QUIT, "退出", true, None::<&str>)?;
+    let app_submenu = Submenu::with_items(app, "desktop-pet", true, &[&settings_i, &quit_i])?;
+    Menu::with_items(app, &[&app_submenu])
 }
 
 fn handle_menu_action(app: &tauri::AppHandle, id: &str) {
@@ -175,7 +221,7 @@ fn handle_menu_action(app: &tauri::AppHandle, id: &str) {
 }
 
 fn apply_window_scale(window: &tauri::WebviewWindow, scale: f64) -> Result<(), String> {
-    let size = BASE_SIZE * scale;
+    let size = BASE_SIZE * clamp_scale(scale);
     window
         .set_size(Size::Logical(tauri::LogicalSize::new(size, size)))
         .map_err(|e| e.to_string())
@@ -189,8 +235,12 @@ fn build_tray(app: &tauri::App) -> tauri::Result<()> {
 
     let menu = Menu::with_items(app, &[&show_i, &hide_i, &settings_i, &quit_i])?;
 
-    let tray = TrayIconBuilder::new()
-        .menu(&menu)
+    let mut tray = TrayIconBuilder::new().menu(&menu);
+    if let Some(icon) = app.default_window_icon() {
+        tray = tray.icon(icon.clone());
+    }
+
+    let tray = tray
         .on_menu_event(|app, event| {
             handle_menu_action(app, event.id.as_ref());
         })
@@ -219,10 +269,12 @@ fn build_tray(app: &tauri::App) -> tauri::Result<()> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let mut builder = tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
             save_window_scale,
             load_window_scale,
+            load_config,
+            save_config,
             hide_main_window,
             show_main_window,
             open_settings,
@@ -238,14 +290,14 @@ pub fn run() {
                 .ok_or("main window not found")?;
             let _ = window.set_background_color(Some(Color(0, 0, 0, 0)));
 
-            let conf = WindowConfig::load();
-            apply_window_scale(&window, conf.scale)?;
+            let conf = read_app_config_or_default();
+            apply_window_scale(&window, conf.pet.scale)?;
 
             // Place at bottom-right when app starts.
             if let Some(monitor) = window.current_monitor().map_err(|e| e.to_string())? {
                 let monitor_size = monitor.size().to_logical::<f64>(monitor.scale_factor());
                 let margin = 24.0;
-                let win_size = BASE_SIZE * conf.scale;
+                let win_size = BASE_SIZE * clamp_scale(conf.pet.scale);
                 let x = (monitor_size.width - win_size - margin).max(0.0);
                 let y = (monitor_size.height - win_size - margin).max(0.0);
                 let _ = window.set_position(Position::Logical(tauri::LogicalPosition::new(x, y)));
@@ -255,7 +307,14 @@ pub fn run() {
         })
         .on_menu_event(|app, event| {
             handle_menu_action(app, event.id.as_ref());
-        })
+        });
+
+    #[cfg(target_os = "macos")]
+    {
+        builder = builder.menu(|app| build_macos_app_menu(app));
+    }
+
+    builder
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
