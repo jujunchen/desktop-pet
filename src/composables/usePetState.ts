@@ -6,7 +6,6 @@ export type TempAction =
   | 'talking'
   | 'happy'
   | 'tilt-head'
-  | 'happy'
   | 'crazy'
   | 'crazy-plus'
   | 'running'
@@ -14,38 +13,80 @@ export type TempAction =
   | 'bored'
 export type PetName = 'dog'
 
+type PetStateKey = BaseState | TempAction
+
 type ActionPriority = 'instruction' | 'interaction' | 'idle-transition'
 
 interface QueuedAction {
   name: TempAction
   duration: number
   priority: number
-  loopCount: number
   interruptible: boolean
   createdAt: number
 }
 
+interface StateMeta {
+  gifSrc: string
+  loop: boolean
+  singlePlayMs?: number
+}
+
 const CLICK_WINDOW_MS = 3_000
 const SITTING_TO_SLEEPING_MS = 60_000 // 60秒无操作进入睡眠
-const SITTING_TO_BORED_MS = 30_000 // 30分钟进入无聊状态
-const TALKING_REMINDER_INTERVAL_MS = 80_000 // 1小时连续使用提醒休息
+const SITTING_TO_BORED_MS = 600_000 // 10分钟进入无聊状态
+const TALKING_REMINDER_INTERVAL_MS = 3600_000 // 1小时连续使用提醒休息
 const IDLE_CHECK_INTERVAL_MS = 1_000
 
-const PETS: Record<PetName, Record<string, string>> = {
+const PET_STATE_META: Record<PetName, Record<PetStateKey, StateMeta>> = {
   dog: {
-    // base states
-    sitting: new URL('../assets/pets/dog/sitting.gif', import.meta.url).href,
-    sleeping: new URL('../assets/pets/dog/sleeping.gif', import.meta.url).href,
-    // interaction actions
-    talking: new URL('../assets/pets/dog/talking.gif', import.meta.url).href,
-    'happy': new URL('../assets/pets/dog/happy.gif', import.meta.url).href,
-    'tilt-head': new URL('../assets/pets/dog/tilt-head.gif', import.meta.url).href,
-    bored: new URL('../assets/pets/dog/bored.gif', import.meta.url).href,
-    backing: new URL('../assets/pets/dog/backing.gif', import.meta.url).href,
-    // excited states
-    crazy: new URL('../assets/pets/dog/crazy.gif', import.meta.url).href,
-    'crazy-plus': new URL('../assets/pets/dog/crazy-plus.gif', import.meta.url).href,
-    running: new URL('../assets/pets/dog/running.gif', import.meta.url).href,
+    sitting: {
+      gifSrc: new URL('../assets/pets/dog/sitting.gif', import.meta.url).href,
+      loop: true,
+    },
+    sleeping: {
+      gifSrc: new URL('../assets/pets/dog/sleeping.gif', import.meta.url).href,
+      loop: true,
+    },
+    talking: {
+      gifSrc: new URL('../assets/pets/dog/talking.gif', import.meta.url).href,
+      loop: false,
+      singlePlayMs: 10_000,
+    },
+    happy: {
+      gifSrc: new URL('../assets/pets/dog/happy.gif', import.meta.url).href,
+      loop: false,
+      singlePlayMs: 3_000,
+    },
+    'tilt-head': {
+      gifSrc: new URL('../assets/pets/dog/tilt-head.gif', import.meta.url).href,
+      loop: false,
+      singlePlayMs: 3_000,
+    },
+    bored: {
+      gifSrc: new URL('../assets/pets/dog/bored.gif', import.meta.url).href,
+      loop: false,
+      singlePlayMs: 3_000,
+    },
+    backing: {
+      gifSrc: new URL('../assets/pets/dog/backing.gif', import.meta.url).href,
+      loop: false,
+      singlePlayMs: 1_600,
+    },
+    crazy: {
+      gifSrc: new URL('../assets/pets/dog/crazy.gif', import.meta.url).href,
+      loop: false,
+      singlePlayMs: 3_600,
+    },
+    'crazy-plus': {
+      gifSrc: new URL('../assets/pets/dog/crazy-plus.gif', import.meta.url).href,
+      loop: false,
+      singlePlayMs: 2_600,
+    },
+    running: {
+      gifSrc: new URL('../assets/pets/dog/running.gif', import.meta.url).href,
+      loop: false,
+      singlePlayMs: 180_000,
+    },
   }
 }
 
@@ -62,10 +103,12 @@ const actionQueue = ref<QueuedAction[]>([])
 const currentActionPriority = ref(0)
 const currentActionInterruptible = ref(true)
 const clickCount = ref(0)
+const lastTriggeredMilestone = ref(0)
 const firstClickTime = ref(0)
 const lastClickTime = ref(0)
 const lastActivityTime = ref(Date.now())
 const lastTalkingReminderTime = ref(Date.now())
+const boredTriggeredInCurrentIdle = ref(false)
 // 泡泡文字
 const showSpeechBubble = ref(false)
 const speechBubbleText = ref('')
@@ -73,11 +116,27 @@ let checkingSystemIdle = false
 
 let actionTimer: number | null = null
 let idleChecker: number | null = null
+let speechTimer: number | null = null
 let started = false
 
+function getStateMeta(state: PetStateKey): StateMeta {
+  return PET_STATE_META[currentPet.value][state]
+}
+
+function getSinglePlayDuration(action: TempAction): number {
+  const meta = getStateMeta(action)
+  if (meta.loop) {
+    throw new Error(`Action ${action} is configured as loop state`)
+  }
+  if (!meta.singlePlayMs) {
+    throw new Error(`Action ${action} is missing singlePlayMs`)
+  }
+  return meta.singlePlayMs
+}
+
 export const currentGif = computed(() => {
-  const key = currentAction.value ?? baseState.value
-  return PETS[currentPet.value][key]
+  const key = (currentAction.value ?? baseState.value) as PetStateKey
+  return getStateMeta(key).gifSrc
 })
 
 // 导出泡泡状态用于 UI 显示
@@ -85,11 +144,31 @@ export { showSpeechBubble, speechBubbleText }
 
 // 显示泡泡文字
 function showSpeech(text: string, duration: number): void {
+  if (speechTimer) {
+    window.clearTimeout(speechTimer)
+    speechTimer = null
+  }
   speechBubbleText.value = text
   showSpeechBubble.value = true
-  window.setTimeout(() => {
+  speechTimer = window.setTimeout(() => {
     showSpeechBubble.value = false
+    speechTimer = null
   }, duration)
+}
+
+function clearCurrentAction(): void {
+  if (actionTimer) {
+    window.clearTimeout(actionTimer)
+    actionTimer = null
+  }
+  if (currentAction.value === 'talking' && speechTimer) {
+    window.clearTimeout(speechTimer)
+    speechTimer = null
+    showSpeechBubble.value = false
+  }
+  currentAction.value = null
+  currentActionPriority.value = 0
+  currentActionInterruptible.value = true
 }
 
 function enqueueQueuedAction(item: QueuedAction): void {
@@ -98,13 +177,7 @@ function enqueueQueuedAction(item: QueuedAction): void {
     item.priority > currentActionPriority.value &&
     currentActionInterruptible.value
   ) {
-    if (actionTimer) {
-      window.clearTimeout(actionTimer)
-      actionTimer = null
-    }
-    currentAction.value = null
-    currentActionPriority.value = 0
-    currentActionInterruptible.value = true
+    clearCurrentAction()
   }
 
   actionQueue.value.push(item)
@@ -120,33 +193,26 @@ function enqueueQueuedAction(item: QueuedAction): void {
   }
 }
 
-function enqueueAction(action: TempAction, duration: number, priority: ActionPriority): void {
+function enqueueAction(
+  action: TempAction,
+  priority: ActionPriority,
+  interruptible = priority !== 'instruction'
+): void {
   enqueueQueuedAction({
     name: action,
-    duration,
+    duration: getSinglePlayDuration(action),
     priority: priorityValue[priority],
-    loopCount: 1,
-    interruptible: priority !== 'instruction',
+    interruptible,
     createdAt: Date.now()
   })
 }
 
-function enqueueLoopAction(
+function playActionOnce(
   action: TempAction,
-  duration: number,
-  loopCount: number,
   priority: ActionPriority,
-  interruptible: boolean
+  interruptible = priority !== 'instruction'
 ): void {
-  const item: QueuedAction = {
-    name: action,
-    duration: duration * loopCount,
-    priority: priorityValue[priority],
-    loopCount,
-    interruptible,
-    createdAt: Date.now()
-  }
-  enqueueQueuedAction(item)
+  enqueueAction(action, priority, interruptible)
 }
 
 function processNextAction(): void {
@@ -157,19 +223,18 @@ function processNextAction(): void {
 
   const next = actionQueue.value.shift()
   if (!next) {
-    currentAction.value = null
-    currentActionPriority.value = 0
-    currentActionInterruptible.value = true
+    clearCurrentAction()
     return
   }
 
   currentAction.value = next.name
   currentActionPriority.value = next.priority
   currentActionInterruptible.value = next.interruptible
+  if (next.name === 'talking') {
+    showSpeech('该休息一下了', next.duration)
+  }
   actionTimer = window.setTimeout(() => {
-    currentAction.value = null
-    currentActionPriority.value = 0
-    currentActionInterruptible.value = true
+    clearCurrentAction()
     processNextAction()
   }, next.duration)
 }
@@ -177,22 +242,60 @@ function processNextAction(): void {
 function wakeFromIdle(): void {
   console.log('[唤醒] sleeping -> sitting')
   baseState.value = 'sitting'
+  boredTriggeredInCurrentIdle.value = false
   resetClickCounter()
 }
 
 function resetClickCounter(): void {
   clickCount.value = 0
+  lastTriggeredMilestone.value = 0
   firstClickTime.value = 0
   lastClickTime.value = 0
+}
+
+function clearActionAndQueue(): void {
+  clearCurrentAction()
+  actionQueue.value = []
+}
+
+function tryTriggerCrazyMilestone(): boolean {
+  if (clickCount.value >= 30) {
+    console.log('[点击] 30次，触发 crazy 模式：running -> backing')
+    clearActionAndQueue()
+    playActionOnce('running', 'instruction')
+    enqueueAction('backing', 'instruction')
+    resetClickCounter()
+    return true
+  }
+
+  if (clickCount.value >= 15 && lastTriggeredMilestone.value < 15) {
+    console.log('[点击] 15次，触发 crazy-plus')
+    clearActionAndQueue()
+    playActionOnce('crazy-plus', 'instruction')
+    lastTriggeredMilestone.value = 15
+    return true
+  }
+
+  if (clickCount.value >= 10 && lastTriggeredMilestone.value < 10) {
+    console.log('[点击] 10次，触发 crazy')
+    clearActionAndQueue()
+    playActionOnce('crazy', 'instruction')
+    lastTriggeredMilestone.value = 10
+    return true
+  }
+
+  return false
 }
 
 export function onPetClick(): void {
   const now = Date.now()
   const stateAtClick = baseState.value
   lastActivityTime.value = now
+  boredTriggeredInCurrentIdle.value = false
 
   if (now - firstClickTime.value > CLICK_WINDOW_MS) {
     clickCount.value = 1
+    lastTriggeredMilestone.value = 0
     firstClickTime.value = now
   } else {
     clickCount.value += 1
@@ -201,8 +304,7 @@ export function onPetClick(): void {
 
   console.log(`[点击] 状态: ${stateAtClick}, 累计点击: ${clickCount.value}, 当前动作: ${currentAction.value ?? '无'}`)
 
-  if (stateAtClick === 'sleeping') {
-    handleSleepingClick()
+  if (tryTriggerCrazyMilestone()) {
     return
   }
 
@@ -213,77 +315,19 @@ export function onPetClick(): void {
       return
     }
 
-    // 立即清除所有正在播放的动作和队列，保证点击立即响应
-    if (actionTimer) {
-      window.clearTimeout(actionTimer)
-      actionTimer = null
-    }
-    actionQueue.value = []
-    currentAction.value = null
-    currentActionPriority.value = 0
-    currentActionInterruptible.value = true
-
-    if (clickCount.value >= 5) {
+    if (clickCount.value === 5) {
       console.log('[点击] 触发 happy 动作')
-      currentAction.value = 'happy'
-      actionTimer = window.setTimeout(() => {
-        console.log('[动作结束] happy')
-        currentAction.value = null
-        processNextAction()
-      }, 3000)
-      resetClickCounter()
+      clearActionAndQueue()
+      playActionOnce('happy', 'interaction')
       return
     }
     // 第2次及以后：tilt-head
-    if (clickCount.value == 3) {
+    if (clickCount.value === 3) {
       console.log('[点击] 触发 tilt-head 动作')
-      currentAction.value = 'tilt-head'
-      actionTimer = window.setTimeout(() => {
-        console.log('[动作结束] tilt-head')
-        currentAction.value = null
-        processNextAction()
-      }, 3000)
+      clearActionAndQueue()
+      playActionOnce('tilt-head', 'interaction')
     }
   }
-}
-
-function handleSleepingClick(): void {
-  if (clickCount.value >= 50) {
-    console.log('[睡眠中点击] 50次，触发 crazy 模式：backing -> running')
-    baseState.value = 'sitting'
-    resetClickCounter()
-    currentAction.value = 'backing'
-    actionTimer = window.setTimeout(() => {
-      currentAction.value = 'running'
-      actionTimer = window.setTimeout(() => {
-        console.log('[动作结束] running')
-        currentAction.value = null
-        processNextAction()
-      }, 180000)
-    }, 1600)
-    return
-  }
-  if (clickCount.value >= 15) {
-    console.log('[睡眠中点击] 15次，触发 crazy-plus')
-    currentAction.value = 'crazy-plus'
-    actionTimer = window.setTimeout(() => {
-      console.log('[动作结束] crazy-plus')
-      currentAction.value = null
-      processNextAction()
-    }, 2600)
-    return
-  }
-  if (clickCount.value >= 5) {
-    console.log('[睡眠中点击] 5次，触发 crazy')
-    currentAction.value = 'crazy'
-    actionTimer = window.setTimeout(() => {
-      console.log('[动作结束] crazy')
-      currentAction.value = null
-      processNextAction()
-    }, 3600)
-    return
-  }
-  wakeFromIdle()
 }
 
 async function checkIdleState(): Promise<void> {
@@ -310,36 +354,15 @@ async function checkIdleState(): Promise<void> {
     return
   }
 
-  // 1小时连续使用提醒休息
-  const timeSinceLastReminder = now - lastTalkingReminderTime.value
-  if (timeSinceLastReminder >= TALKING_REMINDER_INTERVAL_MS) {
-    console.log('[状态变更] 1小时提醒，触发 talking')
-    currentAction.value = 'talking'
-    showSpeech('该休息一下了', 10000)  // 泡泡显示10秒
-    actionTimer = window.setTimeout(() => {
-      console.log('[动作结束] talking')
-      currentAction.value = null
-      processNextAction()
-    }, 10000)
-    lastTalkingReminderTime.value = now
+  // 优先保证 sleeping/sitting 切换：
+  // 有操作（<60s）就保持/恢复 sitting；无操作（>=60s）才进入 sleeping。
+  if (baseState.value === 'sleeping' && idleDuration < SITTING_TO_SLEEPING_MS) {
+    console.log(`[状态变更] 用户恢复活动，从 sleeping 唤醒 (空闲 ${Math.round(idleDuration / 1000)}s)`)
+    wakeFromIdle()
     checkingSystemIdle = false
     return
   }
 
-  // sitting 超过30分钟触发 bored 状态
-  if (baseState.value === 'sitting' && idleDuration >= SITTING_TO_BORED_MS) {
-    console.log(`[状态变更] 空闲 ${Math.round(idleDuration / 1000)}s，触发 bored`)
-    currentAction.value = 'bored'
-    actionTimer = window.setTimeout(() => {
-      console.log('[动作结束] bored')
-      currentAction.value = null
-      processNextAction()
-    }, 3000)
-    checkingSystemIdle = false
-    return
-  }
-
-  // sitting -> sleeping（60秒无操作）
   if (baseState.value === 'sitting' && idleDuration >= SITTING_TO_SLEEPING_MS) {
     console.log(`[状态变更] 空闲 ${Math.round(idleDuration / 1000)}s，进入 sleeping`)
     const oldState = baseState.value
@@ -349,10 +372,29 @@ async function checkIdleState(): Promise<void> {
     return
   }
 
-  // sleeping 状态下，用户恢复活动
-  if (baseState.value === 'sleeping' && idleDuration < SITTING_TO_SLEEPING_MS) {
-    console.log(`[状态变更] 用户恢复活动，从 sleeping 唤醒 (空闲 ${Math.round(idleDuration / 1000)}s)`)
-    wakeFromIdle()
+  if (baseState.value === 'sitting' && idleDuration < SITTING_TO_BORED_MS) {
+    boredTriggeredInCurrentIdle.value = false
+  }
+
+  // 连续使用提醒休息
+  const timeSinceLastReminder = now - lastTalkingReminderTime.value
+  if (timeSinceLastReminder >= TALKING_REMINDER_INTERVAL_MS) {
+    console.log('[状态变更] 80秒提醒，触发 talking')
+    enqueueAction('talking', 'interaction')
+    lastTalkingReminderTime.value = now
+    checkingSystemIdle = false
+    return
+  }
+
+  // sitting 超过30秒触发 bored 状态
+  if (baseState.value === 'sitting' && idleDuration >= SITTING_TO_BORED_MS) {
+    if (boredTriggeredInCurrentIdle.value) {
+      checkingSystemIdle = false
+      return
+    }
+    console.log(`[状态变更] 空闲 ${Math.round(idleDuration / 1000)}s，触发 bored`)
+    enqueueAction('bored', 'interaction')
+    boredTriggeredInCurrentIdle.value = true
     checkingSystemIdle = false
     return
   }
@@ -372,6 +414,7 @@ function startActivityListeners(): void {
   for (const event of activityEvents) {
     window.addEventListener(event, () => {
       lastActivityTime.value = Date.now()
+      boredTriggeredInCurrentIdle.value = false
     }, { passive: true })
   }
 }
@@ -389,7 +432,6 @@ export function setupPetState(): () => void {
   started = true
 
   console.log('[初始化] 宠物状态管理已启动，初始状态: sitting')
-  console.log('[配置] 进入睡眠: 60s, bored: 30分钟, 休息提醒: 1小时')
 
   startActivityListeners()
   startIdleChecker()
@@ -407,18 +449,19 @@ function teardownPetState(): void {
     window.clearInterval(idleChecker)
     idleChecker = null
   }
-  if (actionTimer) {
-    window.clearTimeout(actionTimer)
-    actionTimer = null
+
+  clearCurrentAction()
+  if (speechTimer) {
+    window.clearTimeout(speechTimer)
+    speechTimer = null
   }
+  showSpeechBubble.value = false
 
   actionQueue.value = []
-  currentAction.value = null
-  currentActionPriority.value = 0
-  currentActionInterruptible.value = true
   baseState.value = 'sitting'
   lastActivityTime.value = Date.now()
   lastTalkingReminderTime.value = Date.now()
+  boredTriggeredInCurrentIdle.value = false
   checkingSystemIdle = false
   resetClickCounter()
 }

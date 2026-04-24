@@ -7,7 +7,9 @@ import { loadScale, showPetContextMenu } from './composables/useWindowManager'
 const BASE_SIZE = 180
 const scale = ref(1)
 const styleSize = computed(() => `${BASE_SIZE * scale.value}px`)
-const bubbleStyleSize = computed(() => `${BASE_SIZE * scale.value * 0.8}px`)
+const speechFontSize = computed(() => `${Math.max(10, Math.round(14 * scale.value))}px`)
+const speechMaxHeight = computed(() => 'calc(100vh - 16px)')
+const formattedSpeechText = computed(() => speechBubbleText.value ?? '')
 let teardownPetState: null | (() => void) = null
 
 onMounted(async () => {
@@ -37,8 +39,15 @@ async function onPetContextMenu(event: MouseEvent): Promise<void> {
   <main class="app">
     <!-- 泡泡文字 -->
     <Transition name="bubble-fade">
-      <div v-if="showSpeechBubble" class="speech-bubble" :style="{ maxWidth: bubbleStyleSize }">
-        {{ speechBubbleText }}
+      <div
+        v-if="showSpeechBubble"
+        class="speech-bubble"
+        :style="{
+          '--speech-font-size': speechFontSize,
+          '--speech-max-height': speechMaxHeight
+        }"
+      >
+        {{ formattedSpeechText }}
       </div>
     </Transition>
     <Transition name="pet-fade" mode="out-in">
@@ -70,31 +79,46 @@ async function onPetContextMenu(event: MouseEvent): Promise<void> {
 
 .speech-bubble {
   position: absolute;
-  top: 50%;
-  left: 0;
-  transform: translateX(-120%) translateY(-50%);
-  background: white;
-  padding: 12px 8px;
-  border-radius: 18px;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.15);
-  font-size: 14px;
+  top: 0%;
+  left: 0px;
+  font-size: var(--speech-font-size, 8px);
   color: #333;
   z-index: 10;
   pointer-events: none;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(0, 0, 0, 0.45);
+  border-radius: 10px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+  padding: 6px 8px;
+  max-height: var(--speech-max-height, calc(100vh - 16px));
+  overflow-y: auto;
+  overflow-x: hidden;
+  white-space: pre-wrap;
   writing-mode: vertical-rl;
   text-orientation: upright;
+  line-height: 1.2;
   letter-spacing: 2px;
+  word-break: break-all;
+  overflow-wrap: anywhere;
+  scrollbar-width: thin;
 }
 
-.speech-bubble::after {
-  content: '';
-  position: absolute;
-  right: -8px;
-  top: 50%;
-  transform: translateY(-50%);
-  border-top: 8px solid transparent;
-  border-bottom: 8px solid transparent;
-  border-left: 8px solid white;
+.bubble-fade-enter-active,
+.bubble-fade-leave-active {
+  transition: opacity 0.25s ease;
+}
+
+.bubble-fade-enter-from {
+  opacity: 0;
+}
+
+.bubble-fade-leave-to {
+  opacity: 0;
+}
+
+.bubble-fade-enter-to,
+.bubble-fade-leave-from {
+  opacity: 1;
 }
 
 .pet {
@@ -121,18 +145,4 @@ async function onPetContextMenu(event: MouseEvent): Promise<void> {
   opacity: 0;
 }
 
-.bubble-fade-enter-active,
-.bubble-fade-leave-active {
-  transition: all 0.3s ease;
-}
-
-.bubble-fade-enter-from {
-  opacity: 0;
-  transform: translateX(-50%) translateY(10px);
-}
-
-.bubble-fade-leave-to {
-  opacity: 0;
-  transform: translateX(-50%) translateY(-10px);
-}
 </style>

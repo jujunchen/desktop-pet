@@ -11,6 +11,11 @@ use tauri::{
 use windows_sys::Win32::System::SystemInformation::GetTickCount;
 #[cfg(target_os = "windows")]
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{GetLastInputInfo, LASTINPUTINFO};
+#[cfg(target_os = "macos")]
+#[link(name = "ApplicationServices", kind = "framework")]
+unsafe extern "C" {
+    fn CGEventSourceSecondsSinceLastEventType(state_id: i32, event_type: u32) -> f64;
+}
 
 const BASE_SIZE: f64 = 180.0;
 const SCALE_MIN: f64 = 0.1;
@@ -98,8 +103,19 @@ fn get_system_idle_ms() -> Result<u64, String> {
         return Ok(idle);
     }
 
+    #[cfg(target_os = "macos")]
+    {
+        // kCGEventSourceStateHIDSystemState = 1
+        // kCGAnyInputEventType = 0xFFFFFFFF
+        let seconds = unsafe { CGEventSourceSecondsSinceLastEventType(1, u32::MAX) };
+        if !seconds.is_finite() || seconds < 0.0 {
+            return Err("CGEventSourceSecondsSinceLastEventType returned invalid value".to_string());
+        }
+        return Ok((seconds * 1000.0) as u64);
+    }
+
     #[allow(unreachable_code)]
-    Err("get_system_idle_ms is only supported on Windows".to_string())
+    Err("get_system_idle_ms is only supported on Windows/macOS".to_string())
 }
 
 fn ensure_settings_window(app: &tauri::AppHandle) -> Result<(), String> {
