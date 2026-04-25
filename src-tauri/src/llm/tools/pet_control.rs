@@ -21,7 +21,8 @@ impl Tool for PetControlTool {
 
     fn description(&self) -> &str {
         "控制桌面宠物的动画和行为。
-当用户说'开心点'、'跳个舞吧'、'去接飞盘'、'来个xx表情'时使用（xx表示某个表情名称）。"
+当用户说'开心点'、'跳个舞吧'、'去接飞盘'、'睡觉吧'、'来个xx表情'时使用（xx表示某个表情名称）。
+支持的动作类型：\n- happy: 开心\n- curious: 好奇\n- crazy: 惊讶\n- angry: 生气- sleeping: 睡觉- dance: 跳舞\n- frisbee: 接飞盘\n"
     }
 
     fn parameters(&self) -> Value {
@@ -30,8 +31,8 @@ impl Tool for PetControlTool {
             "properties": {
                 "action": {
                     "type": "string",
-                    "enum": ["happy", "curious", "dance", "frisbee", "crazy", "crazy-plus"],
-                    "description": "动作类型：\n- happy: 开心\n- curious: 好奇\n- crazy: 惊讶\n- crazy-plus: 生气- dance: 跳舞\n- frisbee: 接飞盘\n"
+                    "enum": ["happy", "curious","crazy", "angry", "sleeping", "dance", "frisbee"],
+                    "description": "动作类型：\n- happy: 开心\n- curious: 好奇\n- crazy: 惊讶\n- angry: 生气- sleeping: 睡觉- dance: 跳舞\n- frisbee: 接飞盘\n"
                 }
             },
             "required": ["action"]
@@ -69,12 +70,20 @@ impl Tool for PetControlTool {
                 "小白惊讶地瞪大了眼睛！🐕💨".to_string()
             }
 
-            "crazy-plus" | "生气" => {
+            "angry" | "生气" => {
                 let _ = app.emit(EVT_PET_ACTION, serde_json::json!({
                     "type": "action",
                     "action": "crazy-plus"
                 }));
                 "小白非常生气！汪汪汪！🐕🔥".to_string()
+            }
+
+            "sleeping" | "睡觉" => {
+                let _ = app.emit(EVT_PET_ACTION, serde_json::json!({
+                    "type": "action",
+                    "action": "sleeping"
+                }));
+                "小白要睡觉了！汪汪汪！🐕💤".to_string()
             }
 
             "dance" | "跳舞" => {
