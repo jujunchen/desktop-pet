@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core'
-import { computed, ref } from 'vue'
+import { emit, listen } from '@tauri-apps/api/event'
+import { computed, onMounted, ref } from 'vue'
 
 export type BaseState = 'sitting' | 'sleeping'
 export type TempAction =
@@ -11,6 +12,19 @@ export type TempAction =
   | 'running'
   | 'backing'
   | 'bored'
+
+const EVT_PET_PROCESSING = 'pet://processing'
+const EVT_PET_SPEAKING = 'pet://speaking'
+
+// 跨窗口通知宠物进入思考状态
+export async function enterProcessingState(): Promise<void> {
+  await emit(EVT_PET_PROCESSING, {})
+}
+
+// 跨窗口通知宠物进入说话状态
+export async function enterSpeakingState(text: string): Promise<void> {
+  await emit(EVT_PET_SPEAKING, { text })
+}
 export type PetName = 'dog'
 
 type PetStateKey = BaseState | TempAction
@@ -140,10 +154,39 @@ export const currentGif = computed(() => {
 })
 
 // 导出泡泡状态用于 UI 显示
+const MAX_CHARS_PER_COLUMN = 20
+const MAX_COLUMNS = 2
+const MAX_CHARS = MAX_CHARS_PER_COLUMN * MAX_COLUMNS
+
+export const truncatedSpeechText = computed(() => {
+  if (!speechBubbleText.value) return ''
+  if (speechBubbleText.value.length <= MAX_CHARS) return speechBubbleText.value
+  return speechBubbleText.value.slice(0, MAX_CHARS) + '...'
+})
+
 export { showSpeechBubble, speechBubbleText }
 
+// 在主窗口中监听宠物状态事件
+export async function setupPetStateEventListeners(): Promise<() => void> {
+  const unlistenProcessing = await listen(EVT_PET_PROCESSING, () => {
+    clearActionAndQueue()
+    playActionOnce('tilt-head', 'instruction')
+  })
+
+  const unlistenSpeaking = await listen<{ text: string }>(EVT_PET_SPEAKING, (event) => {
+    clearActionAndQueue()
+    showSpeech(event.payload.text, 5000)
+    playActionOnce('happy', 'instruction')
+  })
+
+  return () => {
+    unlistenProcessing()
+    unlistenSpeaking()
+  }
+}
+
 // 显示泡泡文字
-function showSpeech(text: string, duration: number): void {
+export function showSpeech(text: string, duration: number): void {
   if (speechTimer) {
     window.clearTimeout(speechTimer)
     speechTimer = null

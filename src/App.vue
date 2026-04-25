@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { getCurrentWindow } from '@tauri-apps/api/window'
+import { invoke } from '@tauri-apps/api/core'
 import { computed, onMounted, onUnmounted, ref } from 'vue'
-import { currentGif, onPetClick, setupPetState, showSpeechBubble, speechBubbleText } from './composables/usePetState'
+import { currentGif, onPetClick, setupPetState, setupPetStateEventListeners, showSpeechBubble, truncatedSpeechText } from './composables/usePetState'
 import { loadScale, showPetContextMenu } from './composables/useWindowManager'
 
 const BASE_SIZE = 180
@@ -9,12 +10,15 @@ const scale = ref(1)
 const styleSize = computed(() => `${BASE_SIZE * scale.value}px`)
 const speechFontSize = computed(() => `${Math.max(10, Math.round(14 * scale.value))}px`)
 const speechMaxHeight = computed(() => 'calc(100vh - 16px)')
-const formattedSpeechText = computed(() => speechBubbleText.value ?? '')
+const formattedSpeechText = computed(() => truncatedSpeechText.value ?? '')
 let teardownPetState: null | (() => void) = null
+
+let teardownEventListeners: (() => void) | null = null
 
 onMounted(async () => {
   scale.value = await loadScale()
   teardownPetState = setupPetState()
+  teardownEventListeners = await setupPetStateEventListeners()
 })
 
 onUnmounted(() => {
@@ -22,10 +26,13 @@ onUnmounted(() => {
     teardownPetState()
     teardownPetState = null
   }
+  if (teardownEventListeners) {
+    teardownEventListeners()
+    teardownEventListeners = null
+  }
 })
 
 function onMouseDown(event: MouseEvent): void {
-  console.log('[鼠标] 左键按下：触发点击 + 允许拖拽')
   onPetClick()
   void getCurrentWindow().startDragging()
 }
@@ -91,8 +98,8 @@ async function onPetContextMenu(event: MouseEvent): Promise<void> {
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
   padding: 6px 8px;
   max-height: var(--speech-max-height, calc(100vh - 16px));
-  overflow-y: auto;
-  overflow-x: hidden;
+  max-width: calc(3em + 20px);
+  overflow: hidden;
   white-space: pre-wrap;
   writing-mode: vertical-rl;
   text-orientation: upright;
@@ -100,7 +107,6 @@ async function onPetContextMenu(event: MouseEvent): Promise<void> {
   letter-spacing: 2px;
   word-break: break-all;
   overflow-wrap: anywhere;
-  scrollbar-width: thin;
 }
 
 .bubble-fade-enter-active,

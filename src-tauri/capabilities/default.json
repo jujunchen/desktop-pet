@@ -2,13 +2,33 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Default capability",
-  "windows": ["main"],
+  "windows": ["main", "settings", "chat"],
   "permissions": [
     "core:default",
     "core:window:allow-start-dragging",
     "core:window:allow-show",
     "core:window:allow-hide",
     "core:window:allow-set-size",
-    "core:window:allow-set-position"
+    "core:window:allow-set-position",
+    "core:window:allow-set-focus",
+    "core:window:allow-current-monitor",
+    "core:window:allow-is-visible",
+    "core:event:allow-listen",
+    "core:event:allow-emit",
+    "core:menu:allow-popup"
+  ],
+  "commands": [
+    "save_window_scale",
+    "load_window_scale",
+    "load_config",
+    "save_config",
+    "hide_main_window",
+    "show_main_window",
+    "open_settings",
+    "open_chat_window",
+    "set_main_window_scale",
+    "show_pet_context_menu",
+    "get_system_idle_ms",
+    "chat_with_llm_stream"
   ]
 }

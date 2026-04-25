@@ -1,4 +1,5 @@
 mod config;
+mod llm;
 
 use config::{load_config as load_app_config, save_config as save_app_config, AppConfig};
 use tauri::{
@@ -25,8 +26,10 @@ const MENU_SHOW: &str = "show";
 const MENU_HIDE: &str = "hide";
 const MENU_SETTINGS: &str = "settings";
 const MENU_QUIT: &str = "quit";
+const MENU_TEXT_CHAT: &str = "text-chat";
 const EVT_SCALE_CHANGED: &str = "m1://scale-changed";
 const EVT_CONFIG_CHANGED: &str = "m6://config-changed";
+const EVT_OPEN_TEXT_CHAT: &str = "voice://open-text-chat";
 
 fn clamp_scale(scale: f64) -> f64 {
     scale.clamp(SCALE_MIN, SCALE_MAX)
@@ -123,6 +126,40 @@ fn show_pet_context_menu(app: tauri::AppHandle, x: f64, y: f64) -> Result<(), St
 }
 
 #[tauri::command]
+async fn chat_with_llm_stream(app: tauri::AppHandle, prompt: String) -> Result<(), String> {
+    let config = read_app_config_or_default();
+    llm::chat_with_llm_stream(app, config.llm, prompt).await
+}
+
+#[tauri::command]
+fn open_chat_window(app: tauri::AppHandle) -> Result<(), String> {
+    const CHAT_WINDOW_LABEL: &str = "chat";
+
+    if let Some(window) = app.get_webview_window(CHAT_WINDOW_LABEL) {
+        window.show().map_err(|e| e.to_string())?;
+        window.set_focus().map_err(|e| e.to_string())?;
+        return Ok(());
+    }
+
+    tauri::WebviewWindowBuilder::new(
+        &app,
+        CHAT_WINDOW_LABEL,
+        tauri::WebviewUrl::App("index.html?window=chat".into()),
+    )
+    .title("和小白聊天")
+    .inner_size(420.0, 560.0)
+    .resizable(true)
+    .minimizable(true)
+    .maximizable(false)
+    .always_on_top(true)
+    .skip_taskbar(true)
+    .build()
+    .map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
+#[tauri::command]
 fn get_system_idle_ms() -> Result<u64, String> {
     #[cfg(target_os = "windows")]
     {
@@ -182,10 +219,11 @@ fn ensure_settings_window(app: &tauri::AppHandle) -> Result<(), String> {
 }
 
 fn build_pet_context_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
+    let chat_i = MenuItem::with_id(app, MENU_TEXT_CHAT, "文本对话", true, None::<&str>)?;
     let hide_i = MenuItem::with_id(app, MENU_HIDE, "隐藏宠物", true, None::<&str>)?;
     let settings_i = MenuItem::with_id(app, MENU_SETTINGS, "设置", true, None::<&str>)?;
     let quit_i = MenuItem::with_id(app, MENU_QUIT, "退出", true, None::<&str>)?;
-    Menu::with_items(app, &[&hide_i, &settings_i, &quit_i])
+    Menu::with_items(app, &[&chat_i, &hide_i, &settings_i, &quit_i])
 }
 
 #[cfg(target_os = "macos")]
@@ -199,6 +237,9 @@ fn build_macos_app_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry
 fn handle_menu_action(app: &tauri::AppHandle, id: &str) {
     let window = app.get_webview_window("main");
     match id {
+        MENU_TEXT_CHAT => {
+            let _ = open_chat_window(app.clone());
+        }
         MENU_SHOW => {
             if let Some(w) = window {
                 let _ = w.show();
@@ -228,12 +269,13 @@ fn apply_window_scale(window: &tauri::WebviewWindow, scale: f64) -> Result<(), S
 }
 
 fn build_tray(app: &tauri::App) -> tauri::Result<()> {
+    let chat_i = MenuItem::with_id(app, MENU_TEXT_CHAT, "文本对话", true, None::<&str>)?;
     let show_i = MenuItem::with_id(app, MENU_SHOW, "显示宠物", true, None::<&str>)?;
     let hide_i = MenuItem::with_id(app, MENU_HIDE, "隐藏宠物", true, None::<&str>)?;
     let settings_i = MenuItem::with_id(app, MENU_SETTINGS, "设置", true, None::<&str>)?;
     let quit_i = MenuItem::with_id(app, MENU_QUIT, "退出", true, None::<&str>)?;
 
-    let menu = Menu::with_items(app, &[&show_i, &hide_i, &settings_i, &quit_i])?;
+    let menu = Menu::with_items(app, &[&chat_i, &show_i, &hide_i, &settings_i, &quit_i])?;
 
     let mut tray = TrayIconBuilder::new().menu(&menu);
     if let Some(icon) = app.default_window_icon() {
@@ -278,9 +320,11 @@ pub fn run() {
             hide_main_window,
             show_main_window,
             open_settings,
+            open_chat_window,
             set_main_window_scale,
             show_pet_context_menu,
-            get_system_idle_ms
+            get_system_idle_ms,
+            chat_with_llm_stream
         ])
         .setup(|app| {
             build_tray(app)?;
