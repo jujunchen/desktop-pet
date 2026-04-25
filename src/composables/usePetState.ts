@@ -12,6 +12,9 @@ export type TempAction =
   | 'running'
   | 'backing'
   | 'bored'
+  | 'angry'
+  | 'dance'
+  | 'frisbee'
 
 const EVT_PET_PROCESSING = 'pet://processing'
 const EVT_PET_SPEAKING = 'pet://speaking'
@@ -96,6 +99,21 @@ const PET_STATE_META: Record<PetName, Record<PetStateKey, StateMeta>> = {
       loop: false,
       singlePlayMs: 2_600,
     },
+    'angry': {
+      gifSrc: new URL('../assets/pets/dog/angry.gif', import.meta.url).href,
+      loop: false,
+      singlePlayMs: 2_600,
+    },
+    dance: {
+      gifSrc: new URL('../assets/pets/dog/dance.gif', import.meta.url).href,
+      loop: false,
+      singlePlayMs: 5_000,
+    },
+    frisbee: {
+      gifSrc: new URL('../assets/pets/dog/frisbee.gif', import.meta.url).href,
+      loop: false,
+      singlePlayMs: 5_000,
+    },
     running: {
       gifSrc: new URL('../assets/pets/dog/running.gif', import.meta.url).href,
       loop: false,
@@ -166,6 +184,15 @@ export const truncatedSpeechText = computed(() => {
 
 export { showSpeechBubble, speechBubbleText }
 
+const EVT_PET_ACTION = 'pet://action'
+
+// 宠物动作事件类型
+interface PetActionEvent {
+  type: 'action' | 'say'
+  action?: TempAction
+  content?: string
+}
+
 // 在主窗口中监听宠物状态事件
 export async function setupPetStateEventListeners(): Promise<() => void> {
   const unlistenProcessing = await listen(EVT_PET_PROCESSING, () => {
@@ -173,15 +200,28 @@ export async function setupPetStateEventListeners(): Promise<() => void> {
     playActionOnce('tilt-head', 'instruction')
   })
 
-  const unlistenSpeaking = await listen<{ text: string }>(EVT_PET_SPEAKING, (event) => {
+  // const unlistenSpeaking = await listen<{ text: string }>(EVT_PET_SPEAKING, (event) => {
+  //   clearActionAndQueue()
+  //   showSpeech(event.payload.text, 5000)
+  //   playActionOnce('happy', 'instruction')
+  // })
+
+  // 监听来自工具的宠物控制指令
+  const unlistenAction = await listen<PetActionEvent>(EVT_PET_ACTION, (event) => {
     clearActionAndQueue()
-    showSpeech(event.payload.text, 5000)
-    playActionOnce('happy', 'instruction')
+
+    if (event.payload.type === 'action' && event.payload.action) {
+      playActionOnce(event.payload.action, 'instruction')
+    } else if (event.payload.type === 'say' && event.payload.content) {
+      showSpeech(event.payload.content, 5000)
+      playActionOnce('happy', 'instruction')
+    }
   })
 
   return () => {
     unlistenProcessing()
-    unlistenSpeaking()
+    // unlistenSpeaking()
+    unlistenAction()
   }
 }
 

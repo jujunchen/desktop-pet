@@ -2,8 +2,9 @@ mod config;
 mod llm;
 
 use config::{load_config as load_app_config, save_config as save_app_config, AppConfig};
+use llm::{ChatMessage, GlobalReActEngine};
 use tauri::{
-    menu::{Menu, MenuItem, Submenu},
+    menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     window::Color,
     Emitter, LogicalPosition, Manager, Position, Size, WebviewUrl, WebviewWindowBuilder,
@@ -126,9 +127,14 @@ fn show_pet_context_menu(app: tauri::AppHandle, x: f64, y: f64) -> Result<(), St
 }
 
 #[tauri::command]
-async fn chat_with_llm_stream(app: tauri::AppHandle, prompt: String) -> Result<(), String> {
+async fn chat_with_llm_stream(
+    app: tauri::AppHandle,
+    prompt: String,
+    history: Vec<ChatMessage>,
+    engine: tauri::State<'_, llm::GlobalReActEngine>,
+) -> Result<(), String> {
     let config = read_app_config_or_default();
-    llm::chat_with_llm_stream(app, config.llm, prompt).await
+    llm::chat_with_llm_stream(app, config.llm, prompt, history, engine).await
 }
 
 #[tauri::command]
@@ -311,7 +317,8 @@ fn build_tray(app: &tauri::App) -> tauri::Result<()> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let mut builder = tauri::Builder::default()
+    let builder = tauri::Builder::default()
+        .manage(GlobalReActEngine::default())
         .invoke_handler(tauri::generate_handler![
             save_window_scale,
             load_window_scale,

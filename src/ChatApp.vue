@@ -33,6 +33,10 @@ watch(isLoading, (loading) => {
     enterSpeakingState(pendingText)
     currentStreamingId = null
     pendingText = ''
+    // 回复完成后自动聚焦输入框
+    nextTick(() => {
+      textareaRef.value?.focus()
+    })
   }
 })
 
@@ -77,8 +81,13 @@ function scrollToBottom() {
 
 async function sendMessage() {
   const text = inputText.value.trim()
-  console.log('[ChatApp] 点击发送, text:', text, 'isLoading:', isLoading.value)
-  if (!text || isLoading.value) return
+  if (!text) return
+
+  // 如果正在加载，给予提示但不阻止输入
+  if (isLoading.value) {
+    console.log('小白正在思考中，请稍等～')
+    return
+  }
 
   addMessage('user', text)
   inputText.value = ''
@@ -88,9 +97,20 @@ async function sendMessage() {
   currentStreamingId = messageIdCounter
   pendingText = ''
 
-  console.log('[ChatApp] 调用 sendTextMessage...')
-  await sendTextMessage(text)
-  console.log('[ChatApp] sendTextMessage 完成')
+  // 清空后自动聚焦
+  nextTick(() => {
+    textareaRef.value?.focus()
+  })
+
+  // 构造对话历史（不包括刚添加的空消息）
+  const history = messages.value
+    .slice(0, -1)
+    .map(msg => ({
+      role: msg.role === 'user' ? 'user' as const : 'assistant' as const,
+      content: msg.text
+    }))
+
+  await sendTextMessage(text, history)
 }
 
 function handleKeydown(e: KeyboardEvent) {
@@ -144,7 +164,6 @@ function formatTime(timestamp: number): string {
         v-model="inputText"
         class="chat-input"
         placeholder="输入消息，按 Enter 发送..."
-        :disabled="isLoading"
         @keydown="handleKeydown"
         rows="2"
       ></textarea>
@@ -153,7 +172,7 @@ function formatTime(timestamp: number): string {
         :disabled="isLoading || !inputText.trim()"
         @click="sendMessage"
       >
-        {{ isLoading ? '...' : '发送' }}
+        {{ isLoading ? '小白思考中...' : '发送' }}
       </button>
     </div>
   </div>
