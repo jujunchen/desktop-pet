@@ -1,7 +1,16 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, nextTick, watch } from 'vue'
+import { ref, onMounted, onUnmounted, nextTick, watch, computed } from 'vue'
 import { sendTextMessage, isLoading, errorMessage, currentResponse, cleanupVoiceAssistant } from './composables/useVoiceAssistant'
 import { enterProcessingState, enterSpeakingState } from './composables/usePetState'
+import {
+  useAsr,
+  isRecording,
+  asrResult,
+  asrError,
+  startVoiceChat,
+  voiceButtonText,
+  canStartVoiceChat
+} from './composables/useAsr'
 
 interface ChatMessage {
   id: number
@@ -17,6 +26,25 @@ const messagesContainerRef = ref<HTMLDivElement | null>(null)
 let messageIdCounter = 0
 let currentStreamingId: number | null = null
 let pendingText = ''
+
+// 初始化ASR
+useAsr()
+
+// 检测到ASR识别结果，自动添加到输入框
+watch(asrResult, (result) => {
+  if (result.trim()) {
+    inputText.value = result.trim()
+    // 自动发送
+    setTimeout(() => sendMessage(), 300)
+  }
+})
+
+// 显示ASR错误
+watch(asrError, (error) => {
+  if (error) {
+    console.error('ASR错误:', error)
+  }
+})
 
 watch(currentResponse, (newText) => {
   if (currentStreamingId !== null && newText) {
@@ -158,18 +186,32 @@ function formatTime(timestamp: number): string {
     </div>
 
     <div class="input-area">
-      <div v-if="errorMessage" class="error-message">{{ errorMessage }}</div>
-      <textarea
-        ref="textareaRef"
-        v-model="inputText"
-        class="chat-input"
-        placeholder="输入消息，按 Enter 发送..."
-        @keydown="handleKeydown"
-        rows="2"
-      ></textarea>
+      <div v-if="errorMessage || asrError" class="error-message">{{ errorMessage || asrError }}</div>
+
+      <div class="input-row">
+        <textarea
+          ref="textareaRef"
+          v-model="inputText"
+          class="chat-input"
+          placeholder="输入消息，按 Enter 发送..."
+          @keydown="handleKeydown"
+          rows="2"
+        ></textarea>
+
+        <button
+          class="voice-btn"
+          :class="{ recording: isRecording, disabled: !canStartVoiceChat }"
+          :disabled="!canStartVoiceChat"
+          @click="startVoiceChat"
+          title="点击开始语音聊天，说完后自动识别"
+        >
+          {{ voiceButtonText }}
+        </button>
+      </div>
+
       <button
         class="send-btn"
-        :disabled="isLoading || !inputText.trim()"
+        :disabled="isLoading || (!inputText.trim() && !isRecording)"
         @click="sendMessage"
       >
         {{ isLoading ? '小白思考中...' : '发送' }}
@@ -327,8 +369,14 @@ function formatTime(timestamp: number): string {
   font-size: 13px;
 }
 
+.input-row {
+  display: flex;
+  gap: 10px;
+  align-items: flex-end;
+}
+
 .chat-input {
-  width: 100%;
+  flex: 1;
   padding: 10px 14px;
   border: 1px solid #e0e0e0;
   border-radius: 20px;
@@ -337,6 +385,46 @@ function formatTime(timestamp: number): string {
   font-family: inherit;
   box-sizing: border-box;
   transition: border-color 0.2s;
+}
+
+.voice-btn {
+  padding: 10px 16px;
+  border: 1px solid #e0e0e0;
+  border-radius: 20px;
+  background: #f7f8fa;
+  color: #667eea;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.voice-btn:hover:not(:disabled) {
+  background: #667eea;
+  color: white;
+  border-color: #667eea;
+}
+
+.voice-btn.recording {
+  background: #e53e3e;
+  color: white;
+  border-color: #e53e3e;
+  animation: pulse 1.5s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
+.voice-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .chat-input:focus {

@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onMounted, ref, computed } from 'vue'
+import { invoke } from '@tauri-apps/api/core'
 import {
   type AppConfig,
-  type AsrProvider,
   SCALE_MAX,
   SCALE_MIN,
   clampScale,
@@ -11,34 +11,22 @@ import {
   saveConfig,
   showWindow
 } from './composables/useWindowManager'
+import {
+  initAsrEngine,
+  modelReady,
+  checkModelReady
+} from './composables/useAsr'
 
 const config = ref<AppConfig | null>(null)
 const loading = ref(true)
 const saving = ref(false)
+const defaultModelPath = ref('')
 const saveMessage = ref('')
 const saveMessageType = ref<'success' | 'error' | ''>('')
 const showModal = ref(false)
 const showLlmApiKey = ref(false)
-const showAsrApiKey = ref(false)
 let clearMessageTimer: number | null = null
 let hideLlmApiKeyTimer: number | null = null
-let hideAsrApiKeyTimer: number | null = null
-
-const PROVIDERS: AsrProvider[] = ['whisper-local', 'dashscope', 'volcengine', 'funasr']
-
-const MODEL_PLACEHOLDER: Record<AsrProvider, string> = {
-  'whisper-local': '',
-  dashscope: 'paraformer-v2',
-  volcengine: 'speech-paraformer',
-  funasr: 'paraformer'
-}
-
-const BASE_URL_PLACEHOLDER: Record<AsrProvider, string> = {
-  'whisper-local': '',
-  dashscope: 'https://dashscope.aliyuncs.com/compatible-mode/v1/audio/transcriptions',
-  volcengine: 'https://ark.cn-beijing.volces.com/api/v3/audio/transcriptions',
-  funasr: 'http://127.0.0.1:10095/transcriptions'
-}
 
 function withMessage(msg: string, type: 'success' | 'error' = 'success'): void {
   saveMessage.value = msg
@@ -61,17 +49,19 @@ function closeModal(): void {
 onMounted(async () => {
   try {
     config.value = await loadConfig()
+    defaultModelPath.value = await invoke('get_default_asr_model_path')
+    await initAsrEngine()
+    await checkModelReady()
   } finally {
     loading.value = false
   }
 })
 
-function modelPlaceholder(provider: AsrProvider): string {
-  return MODEL_PLACEHOLDER[provider]
-}
-
-function baseUrlPlaceholder(provider: AsrProvider): string {
-  return BASE_URL_PLACEHOLDER[provider]
+async function openModelDir(): Promise<void> {
+  const path = config.value?.asr.sherpa_onnx.model_dir?.trim()
+    ? config.value.asr.sherpa_onnx.model_dir
+    : defaultModelPath.value
+  await invoke('open_directory_in_explorer', { path })
 }
 
 async function saveAll(): Promise<void> {
@@ -98,16 +88,6 @@ function revealLlmApiKeyTemporarily(): void {
   }
   hideLlmApiKeyTimer = window.setTimeout(() => {
     showLlmApiKey.value = false
-  }, 3000)
-}
-
-function revealAsrApiKeyTemporarily(): void {
-  showAsrApiKey.value = true
-  if (hideAsrApiKeyTimer) {
-    window.clearTimeout(hideAsrApiKeyTimer)
-  }
-  hideAsrApiKeyTimer = window.setTimeout(() => {
-    showAsrApiKey.value = false
   }, 3000)
 }
 
@@ -154,45 +134,42 @@ function revealAsrApiKeyTemporarily(): void {
       </section>
 
       <section class="card">
-        <h2>ASR 配置</h2>
+        <h2>ASR 配置（SenseVoice 本地语音识别）</h2>
         <label class="field">
-          <span>提供商</span>
-          <select v-model="config.asr.provider">
-            <option value="whisper-local">本地 Whisper</option>
-            <option value="dashscope">阿里百炼</option>
-            <option value="volcengine">火山方舟</option>
-            <option value="funasr">FunASR 私有化</option>
+          <span>识别线程数</span>
+          <select v-model.number="config.asr.sherpa_onnx.num_threads">
+            <option :value="1">1 线程</option>
+            <option :value="2">2 线程</option>
+            <option :value="4">4 线程</option>
+            <option :value="8">8 线程</option>
           </select>
         </label>
-
-        <div v-if="config.asr.provider === 'whisper-local'" class="provider-box">
-          <label class="field">
-            <span>模型大小</span>
-            <select v-model="config.asr.whisper_local.model_size">
-              <option value="tiny">tiny</option>
-              <option value="base">base</option>
-              <option value="small">small</option>
-              <option value="medium">medium</option>
-            </select>
-          </label>
+        <label class="field">
+          <span>模型目录</span>
+          <div class="path-row">
+            <input
+              v-model="config.asr.sherpa_onnx.model_dir"
+              :placeholder="defaultModelPath"
+              readonly
+            />
+            <button class="small-btn" type="button" @click="openModelDir">
+              打开目录
+            </button>
+          </div>
+        </label>
+        <div class="model-status">
+          <div v-if="modelReady" class="status-success">
+            <span class="status-icon">✓</span>
+            <span class="status-text">模型已就绪</span>
+          </div>
+          <div v-else class="status-warning">
+            <span class="status-icon">⚠</span>
+            <span class="status-text">请下载模型文件到上述目录：model.int8.onnx、tokens.txt</span>
+          </div>
         </div>
-
-        <div v-if="PROVIDERS.includes(config.asr.provider) && config.asr.provider !== 'whisper-local'" class="provider-box">
-          <label class="field">
-            <span>API Key</span>
-            <div class="secret-row">
-              <input v-model="config.asr[config.asr.provider].api_key" :type="showAsrApiKey ? 'text' : 'password'" placeholder="sk-..." />
-              <button class="small-btn secret-btn" type="button" title="临时显示 3 秒" @click="revealAsrApiKeyTemporarily">临时查看</button>
-            </div>
-          </label>
-          <label class="field">
-            <span>模型</span>
-            <input v-model="config.asr[config.asr.provider].model" :placeholder="modelPlaceholder(config.asr.provider)" />
-          </label>
-          <label class="field">
-            <span>Base URL</span>
-            <input v-model="config.asr[config.asr.provider].base_url" :placeholder="baseUrlPlaceholder(config.asr.provider)" />
-          </label>
+        <div class="model-download-hint">
+          <p><strong>下载地址：</strong></p>
+          <code>https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-15.tar.bz2</code>
         </div>
       </section>
 
@@ -328,6 +305,70 @@ h1 {
   transition: background-color 0.15s ease;
 }
 
+.path-row {
+  display: flex;
+  gap: 8px;
+  flex: 1;
+}
+
+.path-row input {
+  flex: 1;
+  font-size: 12px;
+  background: #f5f5f5;
+}
+
+.model-status {
+  margin-top: 8px;
+  padding: 10px;
+  border-radius: 6px;
+}
+
+.status-success {
+  background: #edf9f0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #2e9e58;
+  font-size: 13px;
+}
+
+.status-warning {
+  background: #fff8e6;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #d97706;
+  font-size: 13px;
+}
+
+.status-icon {
+  font-size: 16px;
+}
+
+.model-download-hint {
+  margin-top: 12px;
+  padding: 10px;
+  background: #f0f7ff;
+  border-radius: 6px;
+  font-size: 12px;
+  color: #374151;
+}
+
+.model-download-hint p {
+  margin: 0 0 6px;
+  font-weight: 500;
+}
+
+.model-download-hint code {
+  display: block;
+  padding: 6px 8px;
+  background: #fff;
+  border-radius: 4px;
+  font-family: monospace;
+  word-break: break-all;
+  color: #1f2937;
+}
+
 .modal-success .modal-btn {
   background: #264653;
   color: #fff;
@@ -397,6 +438,58 @@ select {
   background: #fafcfe;
   display: grid;
   gap: 8px;
+}
+
+.model-status {
+  margin-top: 4px;
+  padding: 10px;
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.status-success {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: #edf9f0;
+  border-radius: 6px;
+  color: #2e9e58;
+}
+
+.status-warning {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: #fff8e6;
+  border-radius: 6px;
+  color: #b36b00;
+}
+
+.status-icon {
+  font-size: 14px;
+  font-weight: bold;
+}
+
+.status-text {
+  flex: 1;
+  font-size: 12px;
+}
+
+.download-btn {
+  background: #264653;
+  color: #fff;
+  border-color: #264653;
+  font-size: 11px;
+  padding: 4px 8px;
+}
+
+.download-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .small-btn {

@@ -60,47 +60,48 @@ pub struct AsrConfig {
     #[serde(default = "default_asr_provider")]
     pub provider: String,
     #[serde(default)]
-    pub whisper_local: WhisperLocalConfig,
-    #[serde(default = "default_dashscope")]
-    pub dashscope: OnlineAsrConfig,
-    #[serde(default = "default_volcengine")]
-    pub volcengine: OnlineAsrConfig,
-    #[serde(default = "default_funasr")]
-    pub funasr: OnlineAsrConfig,
+    pub sherpa_onnx: SherpaOnnxConfig,
 }
 
 impl Default for AsrConfig {
     fn default() -> Self {
         Self {
             provider: default_asr_provider(),
-            whisper_local: WhisperLocalConfig::default(),
-            dashscope: default_dashscope(),
-            volcengine: default_volcengine(),
-            funasr: default_funasr(),
+            sherpa_onnx: SherpaOnnxConfig::default(),
         }
     }
 }
 
 fn default_asr_provider() -> String {
-    "whisper-local".to_string()
+    "sherpa-onnx".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct WhisperLocalConfig {
-    #[serde(default = "default_whisper_model_size")]
+pub struct SherpaOnnxConfig {
+    #[serde(default = "default_model_size")]
     pub model_size: String,
+    #[serde(default)]
+    pub model_dir: String,
+    #[serde(default = "default_num_threads")]
+    pub num_threads: i32,
 }
 
-impl Default for WhisperLocalConfig {
+impl Default for SherpaOnnxConfig {
     fn default() -> Self {
         Self {
-            model_size: default_whisper_model_size(),
+            model_size: default_model_size(),
+            model_dir: String::new(),
+            num_threads: default_num_threads(),
         }
     }
 }
 
-fn default_whisper_model_size() -> String {
-    "tiny".to_string()
+fn default_model_size() -> String {
+    "small".to_string()
+}
+
+fn default_num_threads() -> i32 {
+    2
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -120,30 +121,6 @@ impl Default for OnlineAsrConfig {
             model: String::new(),
             base_url: String::new(),
         }
-    }
-}
-
-fn default_dashscope() -> OnlineAsrConfig {
-    OnlineAsrConfig {
-        api_key: String::new(),
-        model: "paraformer-v2".to_string(),
-        base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1/audio/transcriptions".to_string(),
-    }
-}
-
-fn default_volcengine() -> OnlineAsrConfig {
-    OnlineAsrConfig {
-        api_key: String::new(),
-        model: "speech-paraformer".to_string(),
-        base_url: "https://ark.cn-beijing.volces.com/api/v3/audio/transcriptions".to_string(),
-    }
-}
-
-fn default_funasr() -> OnlineAsrConfig {
-    OnlineAsrConfig {
-        api_key: String::new(),
-        model: "paraformer".to_string(),
-        base_url: "http://127.0.0.1:10095/transcriptions".to_string(),
     }
 }
 

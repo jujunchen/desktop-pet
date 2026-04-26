@@ -24,7 +24,22 @@
       "Bash(npx tauri *)",
       "Bash(python3 -c \"print\\('python available'\\)\")",
       "Bash(cargo check *)",
-      "Bash(python3 *)"
+      "Bash(python3 *)",
+      "Bash(rustup show *)",
+      "Bash(cargo tree *)",
+      "Bash(grep -E \"\\\\.\\(rs|toml\\)$\")",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:k2-fsa.github.io)",
+      "Bash(git clone *)",
+      "Read(//tmp/sherpa-rs-check/sherpa-rs/**)",
+      "Read(//tmp/sherpa-rs-check/sherpa-rs/src/**)",
+      "Read(//tmp/**)",
+      "Bash(rustc --version)",
+      "WebFetch(domain:docs.rs)",
+      "Bash(sed -i '40,50s/^\\\\/\\\\/ //' /mnt/d/projects/desktop-pet/src-tauri/src/lib.rs)",
+      "Bash(sed -i '40s/ \\(已禁用\\)//' /mnt/d/projects/desktop-pet/src-tauri/src/lib.rs)",
+      "Bash(sed -i '46s/ \\(ASR功能已禁用\\)//' /mnt/d/projects/desktop-pet/src-tauri/src/lib.rs)",
+      "WebFetch(domain:crates.io)"
     ]
   }
 }

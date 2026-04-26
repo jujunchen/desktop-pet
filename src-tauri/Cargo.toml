@@ -27,7 +27,17 @@ futures-util = "0.3"
 chrono = { version = "0.4", features = ["serde", "clock"] }
 async-trait = "0.1"
 rand = "0.8"
+tokio-util = { version = "0.7", features = ["compat"] }
+
+# ASR 语音识别 - 使用 SenseVoice 模型
+sherpa-onnx = "1.12.3"
+
+# 音频录制
+cpal = "0.15"
+hound = "3.5"
+rubato = "0.12"
 
 [features]
 default = ["custom-protocol"]
 custom-protocol = ["tauri/custom-protocol"]
+

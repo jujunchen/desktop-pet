@@ -5,7 +5,7 @@ export const SCALE_MAX = 1.0
 export const SCALE_CHANGED_EVENT = 'm1://scale-changed'
 export const CONFIG_CHANGED_EVENT = 'm6://config-changed'
 
-export type AsrProvider = 'whisper-local' | 'dashscope' | 'volcengine' | 'funasr'
+export type AsrProvider = 'sherpa-onnx'
 
 export interface AppConfig {
   llm: {
@@ -15,12 +15,11 @@ export interface AppConfig {
   }
   asr: {
     provider: AsrProvider
-    whisper_local: {
-      model_size: 'tiny' | 'base' | 'small' | 'medium'
+    sherpa_onnx: {
+      model_size: 'tiny' | 'base' | 'small'
+      model_dir: string
+      num_threads: number
     }
-    dashscope: OnlineAsrConfig
-    volcengine: OnlineAsrConfig
-    funasr: OnlineAsrConfig
   }
   pet: {
     current: string
@@ -42,24 +41,11 @@ export function getDefaultConfig(): AppConfig {
       base_url: 'https://api.openai.com/v1'
     },
     asr: {
-      provider: 'whisper-local',
-      whisper_local: {
-        model_size: 'tiny'
-      },
-      dashscope: {
-        api_key: '',
-        model: 'paraformer-v2',
-        base_url: 'https://dashscope.aliyuncs.com/compatible-mode/v1/audio/transcriptions'
-      },
-      volcengine: {
-        api_key: '',
-        model: 'speech-paraformer',
-        base_url: 'https://ark.cn-beijing.volces.com/api/v3/audio/transcriptions'
-      },
-      funasr: {
-        api_key: '',
-        model: 'paraformer',
-        base_url: 'http://127.0.0.1:10095/transcriptions'
+      provider: 'sherpa-onnx',
+      sherpa_onnx: {
+        model_size: 'small',
+        model_dir: '',
+        num_threads: 2
       }
     },
     pet: {
