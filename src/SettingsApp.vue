@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onMounted, ref, computed } from 'vue'
+import { invoke } from '@tauri-apps/api/core'
 import {
   type AppConfig,
   SCALE_MAX,
@@ -16,6 +17,7 @@ import {
   checkAsrReady,
   microphoneAvailable
 } from './composables/useAsr'
+import { loadGrowthState, petMode } from './composables/usePetGrowth'
 
 const config = ref<AppConfig | null>(null)
 const loading = ref(true)
@@ -24,6 +26,12 @@ const saveMessage = ref('')
 const saveMessageType = ref<'success' | 'error' | ''>('')
 const showModal = ref(false)
 const showLlmApiKey = ref(false)
+const showResetConfirm = ref(false)
+const resetting = ref(false)
+
+const modeText = computed(() => {
+  return petMode.value === 'Assistant' ? '助手模式' : '养成模式'
+})
 let clearMessageTimer: number | null = null
 let hideLlmApiKeyTimer: number | null = null
 
@@ -43,6 +51,23 @@ function closeModal(): void {
   showModal.value = false
   saveMessage.value = ''
   saveMessageType.value = ''
+}
+
+async function resetPetGrowth(): Promise<void> {
+  if (resetting.value) return
+  resetting.value = true
+  try {
+    await invoke('reset_pet_growth')
+    await loadGrowthState()
+    config.value = await loadConfig()
+    withMessage('宠物状态已重置，开始新的养成之旅吧！', 'success')
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e)
+    withMessage(`重置失败: ${message}`, 'error')
+  } finally {
+    resetting.value = false
+    showResetConfirm.value = false
+  }
 }
 
 onMounted(async () => {
@@ -168,7 +193,28 @@ function revealLlmApiKeyTemporarily(): void {
             step="0.1"
           />
         </label>
+        <div class="field">
+          <span>当前模式</span>
+          <span class="mode-badge">{{ modeText }}</span>
+        </div>
+        <button class="btn reset-btn" @click="showResetConfirm = true">
+          重新领养（重置宠物状态）
+        </button>
       </section>
+
+      <!-- 重置确认弹窗 -->
+      <div v-if="showResetConfirm" class="modal-overlay" @click.self="showResetConfirm = false">
+        <div class="modal confirm-modal">
+          <h3>确认重新领养？</h3>
+          <p>这将重置宠物的所有状态（亲密度、成长值、存活天数等），重新开始养成。</p>
+          <div class="modal-actions">
+            <button class="btn" @click="showResetConfirm = false">取消</button>
+            <button class="btn danger" :disabled="resetting" @click="resetPetGrowth">
+              {{ resetting ? '重置中...' : '确认重置' }}
+            </button>
+          </div>
+        </div>
+      </div>
 
       <footer class="actions">
         <button class="btn" @click="showWindow">显示宠物</button>
@@ -408,6 +454,57 @@ select {
 .placeholder {
   color: #5b6e7f;
   font-size: 13px;
+}
+
+.reset-btn {
+  margin-top: 8px;
+  background: #fff0f0;
+  border-color: #ffcdd2;
+  color: #c62828;
+}
+
+.reset-btn:hover {
+  background: #ffebee;
+}
+
+.confirm-modal {
+  padding: 20px;
+  max-width: 320px;
+}
+
+.confirm-modal h3 {
+  margin: 0 0 12px;
+  font-size: 16px;
+  color: #253544;
+}
+
+.confirm-modal p {
+  margin: 0 0 20px;
+  font-size: 14px;
+  color: #5b6e7f;
+  line-height: 1.5;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.btn.danger {
+  background: #e53935;
+  border-color: #e53935;
+  color: white;
+}
+
+.mode-badge {
+  justify-self: end;
+  padding: 4px 12px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 500;
+  background: #e3f2fd;
+  color: #1565c0;
 }
 
 @media (max-width: 560px) {

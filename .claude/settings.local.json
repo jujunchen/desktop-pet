@@ -40,7 +40,8 @@
       "Bash(sed -i '40s/ \\(已禁用\\)//' /mnt/d/projects/desktop-pet/src-tauri/src/lib.rs)",
       "Bash(sed -i '46s/ \\(ASR功能已禁用\\)//' /mnt/d/projects/desktop-pet/src-tauri/src/lib.rs)",
       "WebFetch(domain:crates.io)",
-      "Bash(sips *)"
+      "Bash(sips *)",
+      "Bash(cargo build *)"
     ]
   }
 }

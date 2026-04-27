@@ -1,6 +1,7 @@
 import { invoke } from '@tauri-apps/api/core'
 import { emit, listen } from '@tauri-apps/api/event'
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
+import { onPetClicked as growthOnPetClicked, isPetAlive, growthState, loadGrowthState, EVT_GROWTH_CHANGED } from './usePetGrowth'
 
 export type BaseState = 'sitting' | 'sleeping'
 export type TempAction =
@@ -15,6 +16,7 @@ export type TempAction =
   | 'angry'
   | 'dance'
   | 'frisbee'
+  | 'curious'
 
 const EVT_PET_PROCESSING = 'pet://processing'
 const EVT_PET_SPEAKING = 'pet://speaking'
@@ -119,6 +121,10 @@ const PET_STATE_META: Record<PetName, Record<PetStateKey, StateMeta>> = {
       loop: false,
       singlePlayMs: 180_000,
     },
+    curious: {
+      gifSrc: new URL('../assets/pets/dog/curious.gif', import.meta.url).href,
+      loop: true,
+    },
   }
 }
 
@@ -166,9 +172,43 @@ function getSinglePlayDuration(action: TempAction): number {
   return meta.singlePlayMs
 }
 
+// 根据生命阶段和属性状态调整显示的GIF动画
+const effectiveBaseState = computed((): PetStateKey => {
+  const stage = growthState.value?.stage
+  const hunger = growthState.value?.hunger ?? 100
+
+  // 如果有临时动作，优先显示动作动画
+  if (currentAction.value) {
+    return currentAction.value as PetStateKey
+  }
+
+  // 根据饥饿值调整（小于20显示饥饿状态）
+  if (hunger < 20 && baseState.value === 'sitting') {
+    return 'curious' as PetStateKey
+  }
+
+  // 根据生命阶段显示不同动画
+  if (stage === 'Baby') {
+    // 幼体阶段使用更可爱的动画
+    return baseState.value === 'sleeping' ? 'tilt-head' as PetStateKey : 'happy' as PetStateKey
+  }
+
+  if (stage === 'Elder') {
+    // 老年阶段动作缓慢，使用坐姿或思考
+    return baseState.value === 'sleeping' ? 'sleeping' : 'bored' as PetStateKey
+  }
+
+  if (stage === 'Dead') {
+    // 死亡状态显示睡觉（或者后续可以加个专门的死亡动画）
+    return 'sleeping'
+  }
+
+  // 成年/助手模式：正常显示
+  return baseState.value
+})
+
 export const currentGif = computed(() => {
-  const key = (currentAction.value ?? baseState.value) as PetStateKey
-  return getStateMeta(key).gifSrc
+  return getStateMeta(effectiveBaseState.value).gifSrc
 })
 
 // 导出泡泡状态用于 UI 显示
@@ -376,6 +416,11 @@ export function onPetClick(): void {
   lastActivityTime.value = now
   boredTriggeredInCurrentIdle.value = false
 
+  // 点击宠物增加亲密度
+  if (isPetAlive()) {
+    void growthOnPetClicked()
+  }
+
   if (now - firstClickTime.value > CLICK_WINDOW_MS) {
     clickCount.value = 1
     lastTriggeredMilestone.value = 0
@@ -515,6 +560,9 @@ export function setupPetState(): () => void {
   started = true
 
   console.log('[初始化] 宠物状态管理已启动，初始状态: sitting')
+
+  // 加载成长状态（用于根据生命阶段显示不同动画）
+  void loadGrowthState()
 
   startActivityListeners()
   startIdleChecker()

@@ -4,6 +4,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { currentGif, onPetClick, setupPetState, setupPetStateEventListeners, showSpeechBubble, truncatedSpeechText } from './composables/usePetState'
 import { loadScale, showPetContextMenu } from './composables/useWindowManager'
+import { setupPetGrowth, cleanupPetGrowth } from './composables/usePetGrowth'
 
 const BASE_SIZE = 180
 const scale = ref(1)
@@ -15,10 +16,13 @@ let teardownPetState: null | (() => void) = null
 
 let teardownEventListeners: (() => void) | null = null
 
+let teardownPetGrowth: (() => void) | null = null
+
 onMounted(async () => {
   scale.value = await loadScale()
   teardownPetState = setupPetState()
   teardownEventListeners = await setupPetStateEventListeners()
+  teardownPetGrowth = await setupPetGrowth()
 })
 
 onUnmounted(() => {
@@ -29,6 +33,10 @@ onUnmounted(() => {
   if (teardownEventListeners) {
     teardownEventListeners()
     teardownEventListeners = null
+  }
+  if (teardownPetGrowth) {
+    teardownPetGrowth()
+    teardownPetGrowth = null
   }
 })
 

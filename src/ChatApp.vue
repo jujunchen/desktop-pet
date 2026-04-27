@@ -13,6 +13,7 @@ import {
 } from './composables/useAsr'
 import { loadConfig, CONFIG_CHANGED_EVENT, type AppConfig } from './composables/useWindowManager'
 import { listen } from '@tauri-apps/api/event'
+import { onChatCompleted, growthState, loadGrowthState, petMode } from './composables/usePetGrowth'
 
 interface ChatMessage {
   id: number
@@ -33,6 +34,23 @@ let pendingText = ''
 const petName = ref('小白')
 const petAvatar = computed(() => petName.value.charAt(0) || '白')
 let unlistenConfig: (() => void) | null = null
+
+// 判断是否可以执行指令（幼体阶段不能执行）
+const canExecuteCommands = computed(() => {
+  if (petMode.value === 'Assistant') return true
+  if (!growthState.value) return true
+  return growthState.value.stage !== 'Baby' && growthState.value.stage !== 'Dead'
+})
+
+// 检测是否包含指令类请求关键词
+function containsCommandRequest(text: string): boolean {
+  const commandKeywords = [
+    '打开', '关闭', '启动', '运行', '执行', '点击', '输入', '搜索',
+    '帮我', '给我', '控制', '操作', '设置', '调整', '清空', '删除',
+    'command', 'execute', 'run', 'open', 'close', 'delete', 'control'
+  ]
+  return commandKeywords.some(keyword => text.includes(keyword))
+}
 
 // 初始化ASR
 useAsr()
@@ -66,6 +84,8 @@ watch(isLoading, (loading) => {
       updateMessage(currentStreamingId, '（没有收到回复，请检查API配置）')
     }
     enterSpeakingState(pendingText)
+    // 聊天完成，增加亲密度
+    void onChatCompleted()
     currentStreamingId = null
     pendingText = ''
     // 回复完成后自动聚焦输入框
@@ -80,6 +100,9 @@ onMounted(async () => {
   const config = await loadConfig()
   petName.value = config.pet.name || '小白'
 
+  // 加载成长状态
+  await loadGrowthState()
+
   // 监听配置变更事件，实时更新
   unlistenConfig = await listen<AppConfig>(CONFIG_CHANGED_EVENT, (event) => {
     const newName = event.payload.pet.name || '小白'
@@ -88,7 +111,12 @@ onMounted(async () => {
     }
   })
 
-  addMessage('pet', `你好呀！我是${petName.value}，有什么想聊的吗？`)
+  // 根据生命阶段显示不同的欢迎语
+  if (!canExecuteCommands.value) {
+    addMessage('pet', `你好呀！我是${petName.value}，我还是个小宝宝呢~ 你可以陪我聊天、玩耍，等我长大成年后就能帮你做很多事情啦！🐾`)
+  } else {
+    addMessage('pet', `你好呀！我是${petName.value}，有什么想聊的吗？`)
+  }
   nextTick(() => {
     textareaRef.value?.focus()
   })
@@ -134,6 +162,16 @@ async function sendMessage() {
   // 如果正在加载，给予提示但不阻止输入
   if (isLoading.value) {
     console.log(`${petName.value}正在思考中，请稍等～`)
+    return
+  }
+
+  // 幼体阶段不能执行指令类请求
+  if (!canExecuteCommands.value && containsCommandRequest(text)) {
+    addMessage('user', text)
+    inputText.value = ''
+
+    const babyHint = `我还太小了，还不会帮你做这些事情呢~ 等我长大成年后就能帮你执行指令啦！你可以多陪我聊聊天、喂喂我，我会快快长大的 🐾`
+    addMessage('pet', babyHint)
     return
   }
 

@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::{fs, path::PathBuf};
+use std::{fs, path::PathBuf, time::SystemTime};
 
 const APP_DIR: &str = "desktop-pet";
 const APP_CONFIG_FILE: &str = "config.json";
@@ -107,6 +107,10 @@ impl Default for OnlineAsrConfig {
     }
 }
 
+fn default_onboarding_completed() -> bool {
+    false
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PetConfig {
     #[serde(default = "default_pet")]
@@ -117,6 +121,12 @@ pub struct PetConfig {
     pub name: String,
     #[serde(default = "default_pet_prompt")]
     pub prompt: String,
+    #[serde(default = "default_pet_mode")]
+    pub mode: PetMode,
+    #[serde(default)]
+    pub growth: GrowthState,
+    #[serde(default = "default_onboarding_completed")]
+    pub onboarding_completed: bool,
 }
 
 impl Default for PetConfig {
@@ -126,6 +136,9 @@ impl Default for PetConfig {
             scale: default_pet_scale(),
             name: default_pet_name(),
             prompt: default_pet_prompt(),
+            mode: default_pet_mode(),
+            growth: GrowthState::default(),
+            onboarding_completed: default_onboarding_completed(),
         }
     }
 }
@@ -145,6 +158,88 @@ fn default_pet_name() -> String {
 fn default_pet_prompt() -> String {
     "你是一只可爱的桌面宠物，名字叫{name}。你的性格活泼、友好、有点调皮。请用简短、口语化的方式回复，不要太长。回复时要像宠物一样可爱，可以用一些语气词如\"汪\"、\"呀\"、\"呢\"等。".to_string()
 }
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub enum PetMode {
+    Growth,
+    Assistant,
+}
+
+fn default_pet_mode() -> PetMode {
+    PetMode::Assistant
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub enum LifeStage {
+    Baby,
+    Adult,
+    Elder,
+    Dead,
+}
+
+fn default_life_stage() -> LifeStage {
+    LifeStage::Adult
+}
+
+fn now_timestamp() -> i64 {
+    SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GrowthState {
+    #[serde(default = "default_life_stage")]
+    pub stage: LifeStage,
+    #[serde(default = "default_affection")]
+    pub affection: f64,
+    #[serde(default = "default_growth")]
+    pub growth: f64,
+    #[serde(default = "default_hunger")]
+    pub hunger: f64,
+    #[serde(default = "default_happiness")]
+    pub happiness: f64,
+    #[serde(default = "default_health")]
+    pub health: f64,
+    #[serde(default = "now_timestamp")]
+    pub created_at: i64,
+    #[serde(default = "now_timestamp")]
+    pub last_fed_at: i64,
+    #[serde(default = "now_timestamp")]
+    pub last_interacted_at: i64,
+    #[serde(default)]
+    pub reincarnation_count: u32,
+    #[serde(default)]
+    pub inherited_bonus: f64,
+    #[serde(default = "now_timestamp")]
+    pub last_updated_at: i64,
+}
+
+impl Default for GrowthState {
+    fn default() -> Self {
+        Self {
+            stage: default_life_stage(),
+            affection: default_affection(),
+            growth: default_growth(),
+            hunger: default_hunger(),
+            happiness: default_happiness(),
+            health: default_health(),
+            created_at: now_timestamp(),
+            last_fed_at: now_timestamp(),
+            last_interacted_at: now_timestamp(),
+            reincarnation_count: 0,
+            inherited_bonus: 0.0,
+            last_updated_at: now_timestamp(),
+        }
+    }
+}
+
+fn default_affection() -> f64 { 50.0 }
+fn default_growth() -> f64 { 50.0 }
+fn default_hunger() -> f64 { 80.0 }
+fn default_happiness() -> f64 { 60.0 }
+fn default_health() -> f64 { 100.0 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct LegacyWindowConfig {
@@ -213,6 +308,14 @@ impl AppConfig {
         if self.asr.provider != "system" {
             self.asr.provider = default_asr_provider();
         }
+
+        // 规范化养成状态
+        self.pet.growth.affection = self.pet.growth.affection.clamp(0.0, 100.0);
+        self.pet.growth.growth = self.pet.growth.growth.clamp(0.0, 100.0);
+        self.pet.growth.hunger = self.pet.growth.hunger.clamp(0.0, 100.0);
+        self.pet.growth.happiness = self.pet.growth.happiness.clamp(0.0, 100.0);
+        self.pet.growth.health = self.pet.growth.health.clamp(0.0, 100.0);
+        self.pet.growth.inherited_bonus = self.pet.growth.inherited_bonus.clamp(0.0, 50.0);
     }
 
     fn load_legacy_window_scale() -> Option<f64> {
