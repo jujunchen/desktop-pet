@@ -59,49 +59,32 @@ fn default_llm_base_url() -> String {
 pub struct AsrConfig {
     #[serde(default = "default_asr_provider")]
     pub provider: String,
+    // 兼容旧配置文件中遗留字段，运行时不再使用
     #[serde(default)]
-    pub sherpa_onnx: SherpaOnnxConfig,
+    pub sherpa_onnx: LegacySherpaOnnxConfig,
 }
 
 impl Default for AsrConfig {
     fn default() -> Self {
         Self {
             provider: default_asr_provider(),
-            sherpa_onnx: SherpaOnnxConfig::default(),
+            sherpa_onnx: LegacySherpaOnnxConfig::default(),
         }
     }
 }
 
 fn default_asr_provider() -> String {
-    "sherpa-onnx".to_string()
+    "system".to_string()
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SherpaOnnxConfig {
-    #[serde(default = "default_model_size")]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct LegacySherpaOnnxConfig {
+    #[serde(default)]
     pub model_size: String,
     #[serde(default)]
     pub model_dir: String,
-    #[serde(default = "default_num_threads")]
+    #[serde(default)]
     pub num_threads: i32,
-}
-
-impl Default for SherpaOnnxConfig {
-    fn default() -> Self {
-        Self {
-            model_size: default_model_size(),
-            model_dir: String::new(),
-            num_threads: default_num_threads(),
-        }
-    }
-}
-
-fn default_model_size() -> String {
-    "small".to_string()
-}
-
-fn default_num_threads() -> i32 {
-    2
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -204,6 +187,10 @@ impl AppConfig {
         }
 
         if self.asr.provider.trim().is_empty() {
+            self.asr.provider = default_asr_provider();
+        }
+
+        if self.asr.provider != "system" {
             self.asr.provider = default_asr_provider();
         }
     }

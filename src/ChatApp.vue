@@ -156,10 +156,6 @@ function formatTime(timestamp: number): string {
 
 <template>
   <div class="chat-app">
-    <div class="chat-header">
-      <h3>🐕 和小白聊天</h3>
-    </div>
-
     <div ref="messagesContainerRef" class="messages-container">
       <div
         v-for="msg in messages"
@@ -205,7 +201,7 @@ function formatTime(timestamp: number): string {
           @click="startVoiceChat"
           title="点击开始语音聊天，说完后自动识别"
         >
-          {{ voiceButtonText }}
+          <span>{{ voiceButtonText }}</span>
         </button>
       </div>
 
@@ -222,39 +218,44 @@ function formatTime(timestamp: number): string {
 
 <style scoped>
 .chat-app {
+  --accent: #4a6078;
+  --accent-strong: #3c5066;
+  --accent-soft: #e9edf2;
+  --surface: #ffffff;
+  --surface-soft: #ffffff;
+  --text-main: #1f2733;
+  --text-sub: #657080;
+  --border-soft: #d9e0e8;
+  --shadow-soft: 0 8px 20px rgba(21, 35, 52, 0.08);
+
   width: 100vw;
   height: 100vh;
   display: flex;
   flex-direction: column;
-  background: #f7f8fa;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-}
-
-.chat-header {
-  padding: 16px 20px;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
-  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.2);
-}
-
-.chat-header h3 {
-  margin: 0;
-  font-size: 16px;
-  font-weight: 600;
+  position: relative;
+  background: linear-gradient(180deg, #f5f7fa 0%, #f2f4f7 100%);
+  font-family: 'PingFang SC', 'Microsoft YaHei UI', 'Segoe UI', sans-serif;
 }
 
 .messages-container {
   flex: 1;
   overflow-y: auto;
-  padding: 16px;
+  margin: 12px 18px 0;
+  padding: 18px 20px 16px;
+  background: rgba(255, 255, 255, 0.82);
+  border: 1px solid #e3e8ee;
+  border-radius: 22px 22px 0 0;
+  box-shadow: var(--shadow-soft);
   scroll-behavior: smooth;
+  position: relative;
+  z-index: 1;
 }
 
 .message {
   display: flex;
-  gap: 10px;
-  margin-bottom: 16px;
-  max-width: 85%;
+  gap: 18px;
+  margin-bottom: 20px;
+  max-width: min(78%, 560px);
 }
 
 .message.user {
@@ -263,57 +264,63 @@ function formatTime(timestamp: number): string {
 }
 
 .message-avatar {
-  width: 36px;
-  height: 36px;
+  width: 40px;
+  height: 40px;
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 14px;
-  font-weight: 600;
+  font-size: 15px;
+  font-weight: 700;
   flex-shrink: 0;
+  box-shadow: 0 6px 18px rgba(76, 99, 136, 0.15);
 }
 
 .message.user .message-avatar {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
+  background: #dfe5ec;
+  color: #435265;
 }
 
 .message.pet .message-avatar {
-  background: #e8eaed;
-  color: #5f6368;
+  background: #eef2f6;
+  color: #55667b;
+  border: 1px solid #dde4eb;
 }
 
 .message-content {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
 }
 
 .message-text {
-  padding: 10px 14px;
-  border-radius: 18px;
-  font-size: 14px;
-  line-height: 1.5;
+  padding: 12px 15px;
+  border-radius: 16px;
+  font-size: 15px;
+  line-height: 1.58;
+  letter-spacing: 0.15px;
   word-break: break-word;
 }
 
 .message.user .message-text {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
-  border-bottom-right-radius: 4px;
+  background: #52667e;
+  color: #f4f7fb;
+  border-bottom-right-radius: 6px;
+  box-shadow: 0 6px 12px rgba(38, 54, 74, 0.16);
 }
 
 .message.pet .message-text {
-  background: white;
-  color: #333;
-  border-bottom-left-radius: 4px;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+  background: var(--surface-soft);
+  color: var(--text-main);
+  border: 1px solid var(--border-soft);
+  border-bottom-left-radius: 6px;
+  box-shadow: 0 4px 10px rgba(48, 62, 79, 0.08);
+  backdrop-filter: none;
 }
 
 .message-time {
-  font-size: 11px;
-  color: #999;
+  font-size: 12px;
+  color: #7b879b;
   padding: 0 6px;
 }
 
@@ -323,14 +330,14 @@ function formatTime(timestamp: number): string {
 
 .typing .typing-dots {
   display: flex;
-  gap: 4px;
-  padding: 8px 0;
+  gap: 6px;
+  padding: 11px 4px;
 }
 
 .typing .typing-dots span {
-  width: 8px;
-  height: 8px;
-  background: #bbb;
+  width: 7px;
+  height: 7px;
+  background: #9aa8ba;
   border-radius: 50%;
   animation: typing 1.4s infinite;
 }
@@ -355,61 +362,81 @@ function formatTime(timestamp: number): string {
 }
 
 .input-area {
-  padding: 12px 16px;
-  background: white;
-  border-top: 1px solid #eee;
+  padding: 12px 18px 14px;
+  background: #f8fafc;
+  border-top: 1px solid #dde3ea;
+  backdrop-filter: none;
+  position: relative;
+  z-index: 2;
 }
 
 .error-message {
   margin-bottom: 10px;
   padding: 8px 12px;
-  background: #fff2f2;
-  border-radius: 6px;
-  color: #e53e3e;
+  background: #fff5f5;
+  border-radius: 10px;
+  border: 1px solid #ffd7d7;
+  color: #d63636;
   font-size: 13px;
 }
 
 .input-row {
   display: flex;
-  gap: 10px;
+  gap: 12px;
   align-items: flex-end;
 }
 
 .chat-input {
   flex: 1;
-  padding: 10px 14px;
-  border: 1px solid #e0e0e0;
-  border-radius: 20px;
+  height: 56px;
+  min-height: 56px;
+  max-height: 56px;
+  padding: 16px 15px;
+  border: 1px solid #c7d0da;
+  border-radius: 18px;
   resize: none;
-  font-size: 14px;
+  font-size: 15px;
+  color: #2d3847;
+  background: #ffffff;
   font-family: inherit;
   box-sizing: border-box;
-  transition: border-color 0.2s;
+  line-height: 1.4;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.chat-input::placeholder {
+  color: #8b97a7;
 }
 
 .voice-btn {
-  padding: 10px 16px;
-  border: 1px solid #e0e0e0;
-  border-radius: 20px;
-  background: #f7f8fa;
-  color: #667eea;
+  padding: 0 16px;
+  border: 1px solid #c7d0da;
+  border-radius: 17px;
+  background: #ffffff;
+  color: var(--accent);
+  height: 56px;
   font-size: 14px;
+  font-weight: 600;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all 0.2s ease;
   white-space: nowrap;
   flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .voice-btn:hover:not(:disabled) {
-  background: #667eea;
-  color: white;
-  border-color: #667eea;
+  background: #f0f3f7;
+  color: var(--accent-strong);
+  border-color: #aebac8;
+  box-shadow: none;
 }
 
 .voice-btn.recording {
-  background: #e53e3e;
+  background: #8a4a4a;
   color: white;
-  border-color: #e53e3e;
+  border-color: #8a4a4a;
   animation: pulse 1.5s infinite;
 }
 
@@ -429,40 +456,44 @@ function formatTime(timestamp: number): string {
 
 .chat-input:focus {
   outline: none;
-  border-color: #667eea;
+  border-color: #97a5b6;
+  box-shadow: 0 0 0 3px rgba(125, 141, 160, 0.14);
 }
 
 .chat-input:disabled {
-  background: #f9f9f9;
+  background: #f4f6fb;
   cursor: not-allowed;
 }
 
 .send-btn {
   margin-top: 10px;
   width: 100%;
-  padding: 10px 16px;
+  padding: 12px 16px;
   border: none;
-  border-radius: 20px;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
-  font-size: 14px;
-  font-weight: 500;
+  border-radius: 16px;
+  background: #4a6078;
+  color: #ffffff;
+  font-size: 17px;
+  letter-spacing: 0.6px;
+  font-weight: 700;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all 0.24s ease;
+  box-shadow: 0 8px 16px rgba(38, 55, 78, 0.2);
 }
 
 .send-btn:hover:not(:disabled) {
   transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+  box-shadow: 0 10px 18px rgba(38, 55, 78, 0.24);
 }
 
 .send-btn:disabled {
-  opacity: 0.6;
+  opacity: 0.55;
   cursor: not-allowed;
+  box-shadow: none;
 }
 
 .messages-container::-webkit-scrollbar {
-  width: 6px;
+  width: 8px;
 }
 
 .messages-container::-webkit-scrollbar-track {
@@ -470,11 +501,48 @@ function formatTime(timestamp: number): string {
 }
 
 .messages-container::-webkit-scrollbar-thumb {
-  background: #ddd;
-  border-radius: 3px;
+  background: rgba(131, 146, 165, 0.45);
+  border-radius: 10px;
 }
 
 .messages-container::-webkit-scrollbar-thumb:hover {
-  background: #ccc;
+  background: rgba(116, 133, 154, 0.58);
+}
+
+@media (max-width: 768px) {
+  .messages-container {
+    margin: 10px 10px 10px;
+    padding: 14px 12px 10px;
+    border-radius: 16px 16px 16px 16px;
+  }
+
+  .message {
+    max-width: 90%;
+  }
+
+  .message-avatar {
+    width: 34px;
+    height: 34px;
+    font-size: 13px;
+  }
+
+  .message-text {
+    font-size: 14px;
+    padding: 10px 12px;
+  }
+
+  .input-row {
+    gap: 8px;
+  }
+
+  .voice-btn {
+    height: 50px;
+    padding: 0 12px;
+    font-size: 13px;
+  }
+
+  .send-btn {
+    font-size: 16px;
+  }
 }
 </style>

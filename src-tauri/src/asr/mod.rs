@@ -1,173 +1,244 @@
 //! ASR 语音识别模块
-//! 基于 Sherpa-ONNX 实现本地语音识别
-//! 使用 SenseVoice 多语言模型
+//! 基于系统原生语音识别能力（macOS / Windows）
 
-use crate::config::{AppConfig, SherpaOnnxConfig};
-use async_trait::async_trait;
-use std::path::{Path, PathBuf};
+use crate::config::AppConfig;
+use std::fs;
+use std::path::PathBuf;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+#[cfg(target_os = "macos")]
+unsafe extern "C" {
+    fn asr_transcribe_wav(wav_path: *const std::os::raw::c_char) -> *mut std::os::raw::c_char;
+    fn asr_string_free(ptr: *mut std::os::raw::c_char);
+}
+
+#[cfg(target_os = "macos")]
+pub fn map_macos_asr_error(err: &str) -> String {
+    if err.is_empty() {
+        "macOS 系统语音识别失败".to_string()
+    } else if err.contains("timeout") {
+        "语音识别超时，请重试".to_string()
+    } else if err.contains("authorization denied status=1")
+        || err.contains("authorization denied status=2")
+    {
+        "系统语音识别权限被拒绝，请在 系统设置 > 隐私与安全性 > 语音识别 中允许当前应用".to_string()
+    } else if err.contains("authorization denied status=3") {
+        "设备受限，无法使用系统语音识别（restricted）".to_string()
+    } else if err.contains("isAvailable=false") || err.contains("speech recognizer unavailable") {
+        "当前系统语音识别服务不可用，请稍后重试".to_string()
+    } else if err.contains("No speech detected")
+        || err.contains("Code=1110")
+        || err.contains("code=1110")
+    {
+        "未检测到可识别语音，请说话更清晰并靠近麦克风".to_string()
+    } else if (err.contains("domain=AVFoundationErrorDomain") && err.contains("code=-11800"))
+        || err.contains("unknown error occurred (-17913)")
+    {
+        "macOS 语音服务不可用（AVFoundation -11800/-17913）。请确认已在 系统设置 > 隐私与安全性 > 语音识别 中允许 desktop-pet，并重启应用后重试".to_string()
+    } else if err.contains("domain=kAFAssistantErrorDomain")
+        || err.contains("domain=SFSpeechErrorDomain")
+        || err.contains("domain=NSURLErrorDomain")
+    {
+        format!("macOS 系统语音识别失败（系统服务错误）: {}", err)
+    } else {
+        format!("macOS 系统语音识别失败: {}", err)
+    }
+}
 
 /// 统一ASR引擎Trait
-#[async_trait]
-pub trait AsrEngine: Send + Sync {
+pub trait AsrEngine: Send {
     /// 语音识别
     /// audio_data: 16kHz 采样率, 单声道, f32 格式的 PCM 数据
-    async fn transcribe(&mut self, audio_data: &[f32]) -> Result<String, String>;
+    fn transcribe(&mut self, audio_data: &[f32]) -> Result<String, String>;
 
     /// 获取引擎名称
     fn name(&self) -> &str;
 
-    /// 检查模型是否已下载
+    /// 系统ASR默认就绪（可用性在调用时判定）
     fn is_model_ready(&self) -> bool;
 
-    /// 下载模型（如果需要）
-    async fn download_model(&mut self) -> Result<(), String>;
+    /// 系统ASR不需要下载模型
+    fn download_model(&mut self) -> Result<(), String>;
 }
 
-/// Sherpa-ONNX 本地ASR引擎（使用SenseVoice模型）
-pub struct SherpaOnnxEngine {
-    config: SherpaOnnxConfig,
-    model_path: PathBuf,
-    recognizer: Option<sherpa_onnx::OfflineRecognizer>,
-    is_model_ready: bool,
+pub struct SystemAsrEngine;
+
+impl SystemAsrEngine {
+    pub fn new() -> Self {
+        Self
+    }
+
+    fn write_temp_wav(audio_data: &[f32]) -> Result<PathBuf, String> {
+        let mut path = std::env::temp_dir();
+        let ts = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|e| e.to_string())?
+            .as_millis();
+        path.push(format!("desktop-pet-asr-{}.wav", ts));
+
+        let spec = hound::WavSpec {
+            channels: 1,
+            sample_rate: 16000,
+            bits_per_sample: 16,
+            sample_format: hound::SampleFormat::Int,
+        };
+
+        let mut writer = hound::WavWriter::create(&path, spec)
+            .map_err(|e| format!("创建临时音频文件失败: {}", e))?;
+
+        for &sample in audio_data {
+            let clamped = sample.clamp(-1.0, 1.0);
+            let s = (clamped * i16::MAX as f32) as i16;
+            writer
+                .write_sample(s)
+                .map_err(|e| format!("写入临时音频失败: {}", e))?;
+        }
+
+        writer
+            .finalize()
+            .map_err(|e| format!("完成音频文件失败: {}", e))?;
+
+        Ok(path)
+    }
+
+    #[cfg(target_os = "macos")]
+    fn transcribe_macos(wav_path: &PathBuf) -> Result<String, String> {
+        if !wav_path.exists() {
+            return Err("临时音频文件不存在".to_string());
+        }
+        let meta = fs::metadata(wav_path).map_err(|e| format!("读取临时音频信息失败: {}", e))?;
+        if meta.len() == 0 {
+            return Err("临时音频文件为空".to_string());
+        }
+
+        let c_path = std::ffi::CString::new(wav_path.to_string_lossy().to_string())
+            .map_err(|e| format!("音频路径包含非法字符: {}", e))?;
+
+        let raw = unsafe { asr_transcribe_wav(c_path.as_ptr()) };
+        if raw.is_null() {
+            return Err("macOS 系统语音识别失败：桥接返回空结果".to_string());
+        }
+
+        let result = unsafe {
+            let s = std::ffi::CStr::from_ptr(raw).to_string_lossy().into_owned();
+            asr_string_free(raw);
+            s
+        };
+
+        if let Some(err) = result.strip_prefix("ERR:") {
+            return Err(map_macos_asr_error(err.trim()));
+        }
+
+        let text = result
+            .strip_prefix("OK:")
+            .unwrap_or(&result)
+            .trim()
+            .to_string();
+        if text.is_empty() {
+            return Err("未识别到有效语音，请重试".to_string());
+        }
+
+        Ok(text)
+    }
+
+    #[cfg(target_os = "windows")]
+    fn transcribe_windows(wav_path: &PathBuf) -> Result<String, String> {
+        let escaped = wav_path.to_string_lossy().replace('\\', "\\\\").replace('"', "\\\"");
+        let script = format!(
+            r#"
+Add-Type -AssemblyName System.Speech
+$engine = New-Object System.Speech.Recognition.SpeechRecognitionEngine([System.Globalization.CultureInfo]::GetCultureInfo("zh-CN"))
+$engine.LoadGrammar((New-Object System.Speech.Recognition.DictationGrammar))
+$engine.SetInputToWaveFile("{}")
+$result = $engine.Recognize()
+if ($null -eq $result) {{ exit 4 }}
+Write-Output $result.Text
+"#,
+            escaped
+        );
+
+        let output = Command::new("powershell")
+            .arg("-NoProfile")
+            .arg("-NonInteractive")
+            .arg("-ExecutionPolicy")
+            .arg("Bypass")
+            .arg("-Command")
+            .arg(script)
+            .output()
+            .map_err(|e| format!("执行系统语音识别失败: {}", e))?;
+
+        if !output.status.success() {
+            let err = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            return Err(if err.is_empty() {
+                "Windows 系统语音识别失败".to_string()
+            } else {
+                format!("Windows 系统语音识别失败: {}", err)
+            });
+        }
+
+        let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if text.is_empty() {
+            return Err("未识别到有效语音，请重试".to_string());
+        }
+
+        Ok(text)
+    }
 }
 
-impl SherpaOnnxEngine {
-    /// 创建新的 Sherpa-ONNX 引擎
-    pub fn new(config: &SherpaOnnxConfig) -> Result<Self, String> {
-        let model_path = Self::get_model_path(config);
-        let is_model_ready = Self::check_model_exists(&model_path);
+impl AsrEngine for SystemAsrEngine {
+    fn transcribe(&mut self, audio_data: &[f32]) -> Result<String, String> {
+        let wav_path = Self::write_temp_wav(audio_data)?;
 
-        let recognizer = if is_model_ready {
-            Self::create_recognizer(&model_path, config.num_threads)?
-        } else {
-            // 模型未准备好时返回空Option
+        let result = {
+            #[cfg(target_os = "macos")]
+            {
+                Self::transcribe_macos(&wav_path)
+            }
+
+            #[cfg(target_os = "windows")]
+            {
+                Self::transcribe_windows(&wav_path)
+            }
+
+            #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+            {
+                Err("当前平台不支持系统ASR".to_string())
+            }
         };
 
-        Ok(Self {
-            config: config.clone(),
-            model_path,
-            recognizer,
-            is_model_ready,
-        })
-    }
-
-    /// 获取模型存储路径
-    fn get_model_path(config: &SherpaOnnxConfig) -> PathBuf {
-        if !config.model_dir.is_empty() {
-            Path::new(&config.model_dir).to_path_buf()
-        } else {
-            // 使用平台标准配置目录
-            // Windows: %APPDATA%\desktop-pet\asr-models\sense-voice
-            // macOS: ~/Library/Application Support/desktop-pet/asr-models/sense-voice
-            // Linux: ~/.config/desktop-pet/asr-models/sense-voice
-            dirs::config_dir()
-                .unwrap_or_else(|| PathBuf::from("."))
-                .join("desktop-pet")
-                .join("asr-models")
-                .join("sense-voice")
-        }
-    }
-
-    /// 检查模型文件是否存在
-    fn check_model_exists(path: &Path) -> bool {
-        // SenseVoice 模型文件
-        let model = path.join("model.int8.onnx");
-        let tokens = path.join("tokens.txt");
-
-        model.exists() && tokens.exists()
-    }
-
-    /// 创建离线识别器
-    fn create_recognizer(
-        model_path: &Path,
-        num_threads: i32,
-    ) -> Result<Option<sherpa_onnx::OfflineRecognizer>, String> {
-        // SenseVoice 模型配置
-        let sense_voice_config = sherpa_onnx::OfflineSenseVoiceModelConfig {
-            model: model_path.join("model.int8.onnx").to_string_lossy().to_string(),
-            ..Default::default()
-        };
-
-        let model_config = sherpa_onnx::OfflineModelConfig {
-            sense_voice: Some(sense_voice_config),
-            tokens: model_path.join("tokens.txt").to_string_lossy().to_string(),
-            num_threads,
-            ..Default::default()
-        };
-
-        let recognizer_config = sherpa_onnx::OfflineRecognizerConfig {
-            model: model_config,
-            ..Default::default()
-        };
-
-        let recognizer = sherpa_onnx::OfflineRecognizer::new(recognizer_config)
-            .map_err(|e| format!("初始化识别器失败: {}", e))?;
-
-        Ok(Some(recognizer))
-    }
-
-    /// 初始化识别器（如果已在new时初始化）
-    fn init_recognizer(&mut self) -> Result<(), String> {
-        if self.recognizer.is_some() {
-            return Ok(());
-        }
-
-        if !self.is_model_ready {
-            return Err("模型文件不存在，请先下载模型".to_string());
-        }
-
-        self.recognizer = Self::create_recognizer(&self.model_path, self.config.num_threads)?;
-        Ok(())
-    }
-}
-
-#[async_trait]
-impl AsrEngine for SherpaOnnxEngine {
-    async fn transcribe(&mut self, audio_data: &[f32]) -> Result<String, String> {
-        if self.recognizer.is_none() {
-            self.init_recognizer()?;
-        }
-
-        let recognizer = self
-            .recognizer
-            .as_mut()
-            .ok_or_else(|| "识别器未初始化".to_string())?;
-
-        // 创建识别流
-        let mut stream = recognizer.create_stream();
-
-        // 接受音频数据（采样率必须是 16kHz）
-        stream.accept_waveform(16000.0, audio_data);
-
-        // 执行解码
-        recognizer.decode(&mut stream);
-
-        // 获取结果
-        let result = stream.get_result();
-
-        Ok(result)
+        let _ = fs::remove_file(&wav_path);
+        result
     }
 
     fn name(&self) -> &str {
-        "sherpa-onnx-sense-voice"
+        "system-asr"
     }
 
     fn is_model_ready(&self) -> bool {
-        self.is_model_ready
+        true
     }
 
-    async fn download_model(&mut self) -> Result<(), String> {
-        Err("自动下载功能已移除，请手动下载SenseVoice模型到指定目录".to_string())
+    fn download_model(&mut self) -> Result<(), String> {
+        Err("系统ASR不需要下载模型".to_string())
     }
 }
 
 /// 工厂模式：创建ASR引擎
 pub fn create_engine(config: &AppConfig) -> Result<Box<dyn AsrEngine>, String> {
-    match config.asr.provider.as_str() {
-        "sherpa-onnx" => {
-            let engine = SherpaOnnxEngine::new(&config.asr.sherpa_onnx)?;
-            Ok(Box::new(engine))
-        }
-        _ => Err(format!("不支持的ASR提供商: {}", config.asr.provider)),
+    if config.asr.provider != "system" {
+        return Err(format!(
+            "不支持的ASR提供商: {}（当前仅支持 system）",
+            config.asr.provider
+        ));
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    {
+        Ok(Box::new(SystemAsrEngine::new()))
+    }
+
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        Err("当前平台不支持系统ASR".to_string())
     }
 }

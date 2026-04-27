@@ -7,10 +7,9 @@ use audio::AudioRecorder;
 use asr::{create_engine, AsrEngine};
 use config::{load_config as load_app_config, save_config as save_app_config, AppConfig};
 use llm::{ChatMessage, GlobalReActEngine};
-use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use tauri::{
-    menu::{Menu, MenuItem},
+    menu::{Menu, MenuItem, Submenu},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     window::Color,
     Emitter, LogicalPosition, Manager, Position, Size, WebviewUrl, WebviewWindowBuilder,
@@ -23,6 +22,12 @@ use windows_sys::Win32::UI::Input::KeyboardAndMouse::{GetLastInputInfo, LASTINPU
 #[link(name = "ApplicationServices", kind = "framework")]
 unsafe extern "C" {
     fn CGEventSourceSecondsSinceLastEventType(state_id: i32, event_type: u32) -> f64;
+}
+
+#[cfg(target_os = "macos")]
+unsafe extern "C" {
+    fn asr_request_permissions() -> *mut std::os::raw::c_char;
+    fn asr_string_free(ptr: *mut std::os::raw::c_char);
 }
 
 const BASE_SIZE: f64 = 180.0;
@@ -46,7 +51,7 @@ const EVT_ASR_ERROR: &str = "asr:error";
 
 /// 应用全局状态
 pub struct AppState {
-    asr_engine: Mutex<Option<Box<dyn AsrEngine>>>,
+    asr_engine: Arc<Mutex<Option<Box<dyn AsrEngine>>>>,
     audio_recorder: Mutex<AudioRecorder>,
 }
 
@@ -164,6 +169,39 @@ fn check_microphone_available() -> bool {
 }
 
 #[tauri::command]
+async fn request_asr_permissions() -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        let raw = unsafe { asr_request_permissions() };
+        if !raw.is_null() {
+            let err = unsafe {
+                let s = std::ffi::CStr::from_ptr(raw).to_string_lossy().into_owned();
+                asr_string_free(raw);
+                s
+            };
+
+            if err.contains("microphone authorization denied") {
+                return Err("麦克风权限被拒绝，请在 系统设置 > 隐私与安全性 > 麦克风 中允许当前应用".to_string());
+            }
+            if err.contains("speech authorization denied") {
+                return Err("语音识别权限被拒绝，请在 系统设置 > 隐私与安全性 > 语音识别 中允许当前应用".to_string());
+            }
+            if err.contains("timeout") {
+                return Err("请求系统语音权限超时，请重试".to_string());
+            }
+            return Err(if err.is_empty() {
+                "请求系统语音权限失败".to_string()
+            } else {
+                format!("请求系统语音权限失败: {}", err)
+            });
+        }
+    }
+
+    Ok(())
+}
+
+
+#[tauri::command]
 async fn init_asr_engine(state: tauri::State<'_, AppState>) -> Result<(), String> {
     let mut asr_engine = state.asr_engine.lock().map_err(|e| e.to_string())?;
 
@@ -179,25 +217,13 @@ async fn init_asr_engine(state: tauri::State<'_, AppState>) -> Result<(), String
 }
 
 #[tauri::command]
-async fn check_asr_model_ready(state: tauri::State<'_, AppState>) -> Result<bool, String> {
+async fn check_asr_ready(state: tauri::State<'_, AppState>) -> Result<bool, String> {
     let asr_engine = state.asr_engine.lock().map_err(|e| e.to_string())?;
 
     if let Some(engine) = asr_engine.as_ref() {
         Ok(engine.is_model_ready())
     } else {
         Ok(false)
-    }
-}
-
-#[tauri::command]
-async fn download_asr_model(state: tauri::State<'_, AppState>) -> Result<(), String> {
-    let mut asr_engine = state.asr_engine.lock().map_err(|e| e.to_string())?;
-
-    if let Some(engine) = asr_engine.as_mut() {
-        engine.download_model().await?;
-        Ok(())
-    } else {
-        Err("ASR引擎未初始化".to_string())
     }
 }
 
@@ -254,7 +280,7 @@ async fn stop_asr_recording(
     // 执行语音识别
     let mut asr_engine = state.asr_engine.lock().map_err(|e| e.to_string())?;
     if let Some(engine) = asr_engine.as_mut() {
-        match engine.transcribe(&audio_data).await {
+        match engine.transcribe(&audio_data) {
             Ok(text) => {
                 app.emit(EVT_ASR_RESULT, serde_json::json!({ "text": text.clone() }))
                     .map_err(|e| e.to_string())?;
@@ -297,9 +323,9 @@ async fn start_voice_chat(
     app.emit(EVT_ASR_RECORDING_STARTED, ())
         .map_err(|e| e.to_string())?;
 
-    // 等待录音完成（静音检测自动停止，或者最长30秒）
+    // 等待录音完成（静音检测自动停止，或者最长10秒）
     let mut wait_count = 0;
-    let max_wait = 350; // 最多等35秒（350 * 100ms）
+    let max_wait = 100; // 最多等10秒（100 * 100ms）
 
     loop {
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
@@ -336,9 +362,19 @@ async fn start_voice_chat(
     let asr_text = {
         let mut asr_engine = state.asr_engine.lock().map_err(|e| e.to_string())?;
         if let Some(engine) = asr_engine.as_mut() {
-            engine.transcribe(&audio_data).await?
+            match engine.transcribe(&audio_data) {
+                Ok(text) => text,
+                Err(e) => {
+                    app.emit(EVT_ASR_ERROR, serde_json::json!({ "message": e.clone() }))
+                        .map_err(|emit_err| emit_err.to_string())?;
+                    return Err(e);
+                }
+            }
         } else {
-            return Err("ASR引擎未初始化".to_string());
+            let err = "ASR引擎未初始化".to_string();
+            app.emit(EVT_ASR_ERROR, serde_json::json!({ "message": err.clone() }))
+                .map_err(|emit_err| emit_err.to_string())?;
+            return Err(err);
         }
     };
 
@@ -348,6 +384,11 @@ async fn start_voice_chat(
 
     // 如果识别结果为空，不发送
     if asr_text.trim().is_empty() {
+        app.emit(
+            EVT_ASR_ERROR,
+            serde_json::json!({ "message": "未识别到有效语音，请重试" }),
+        )
+        .map_err(|e| e.to_string())?;
         return Ok(());
     }
 
@@ -361,64 +402,6 @@ async fn start_voice_chat(
     Ok(())
 }
 
-#[tauri::command]
-fn get_default_asr_model_path() -> String {
-    // 获取默认模型路径
-    let path = dirs::config_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("desktop-pet")
-        .join("asr-models")
-        .join("sense-voice");
-    
-    path.to_string_lossy().to_string()
-}
-
-#[tauri::command]
-fn open_directory_in_explorer(path: String) -> Result<(), String> {
-    // 在系统文件管理器中打开目录
-    let path = PathBuf::from(path);
-    
-    // 确保目录存在，不存在则创建
-    if !path.exists() {
-        std::fs::create_dir_all(&path)
-            .map_err(|e| format!("创建目录失败: {}", e))?;
-    }
-    
-    #[cfg(target_os = "windows")]
-    {
-        std::process::Command::new("explorer.exe")
-            .arg(path)
-            .spawn()
-            .map_err(|e| format!("打开资源管理器失败: {}", e))?;
-    }
-    
-    #[cfg(target_os = "macos")]
-    {
-        std::process::Command::new("open")
-            .arg(path)
-            .spawn()
-            .map_err(|e| format!("打开访达失败: {}", e))?;
-    }
-    
-    #[cfg(target_os = "linux")]
-    {
-        std::process::Command::new("xdg-open")
-            .arg(path)
-            .spawn()
-            .map_err(|e| format!("打开文件管理器失败: {}", e))?;
-    }
-    
-    Ok(())
-}
-
-#[tauri::command]
-async fn check_model_files_exist(path: String) -> Result<bool, String> {
-    let path = PathBuf::from(path);
-    let model = path.join("model.int8.onnx");
-    let tokens = path.join("tokens.txt");
-    
-    Ok(model.exists() && tokens.exists())
-}
 #[tauri::command]
 fn open_chat_window(app: tauri::AppHandle) -> Result<(), String> {
     const CHAT_WINDOW_LABEL: &str = "chat";
@@ -599,9 +582,9 @@ fn build_tray(app: &tauri::App) -> tauri::Result<()> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let builder = tauri::Builder::default()
+    let mut builder = tauri::Builder::default()
         .manage(AppState {
-            asr_engine: Mutex::new(None),
+            asr_engine: Arc::new(Mutex::new(None)),
             audio_recorder: Mutex::new(AudioRecorder::new()),
         })
         .manage(GlobalReActEngine::default())
@@ -620,15 +603,12 @@ pub fn run() {
             chat_with_llm_stream,
             // ASR commands
             check_microphone_available,
+            request_asr_permissions,
             init_asr_engine,
-            check_asr_model_ready,
-            download_asr_model,
+            check_asr_ready,
             start_asr_recording,
             stop_asr_recording,
-            start_voice_chat,
-            get_default_asr_model_path,
-            open_directory_in_explorer,
-            check_model_files_exist
+            start_voice_chat
         ])
         .setup(|app| {
             build_tray(app)?;

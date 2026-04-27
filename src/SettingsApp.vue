@@ -1,6 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref, computed } from 'vue'
-import { invoke } from '@tauri-apps/api/core'
+import { onMounted, ref } from 'vue'
 import {
   type AppConfig,
   SCALE_MAX,
@@ -13,14 +12,14 @@ import {
 } from './composables/useWindowManager'
 import {
   initAsrEngine,
-  modelReady,
-  checkModelReady
+  asrReady,
+  checkAsrReady,
+  microphoneAvailable
 } from './composables/useAsr'
 
 const config = ref<AppConfig | null>(null)
 const loading = ref(true)
 const saving = ref(false)
-const defaultModelPath = ref('')
 const saveMessage = ref('')
 const saveMessageType = ref<'success' | 'error' | ''>('')
 const showModal = ref(false)
@@ -49,20 +48,12 @@ function closeModal(): void {
 onMounted(async () => {
   try {
     config.value = await loadConfig()
-    defaultModelPath.value = await invoke('get_default_asr_model_path')
     await initAsrEngine()
-    await checkModelReady()
+    await checkAsrReady()
   } finally {
     loading.value = false
   }
 })
-
-async function openModelDir(): Promise<void> {
-  const path = config.value?.asr.sherpa_onnx.model_dir?.trim()
-    ? config.value.asr.sherpa_onnx.model_dir
-    : defaultModelPath.value
-  await invoke('open_directory_in_explorer', { path })
-}
 
 async function saveAll(): Promise<void> {
   if (!config.value || saving.value) {
@@ -134,42 +125,16 @@ function revealLlmApiKeyTemporarily(): void {
       </section>
 
       <section class="card">
-        <h2>ASR 配置（SenseVoice 本地语音识别）</h2>
-        <label class="field">
-          <span>识别线程数</span>
-          <select v-model.number="config.asr.sherpa_onnx.num_threads">
-            <option :value="1">1 线程</option>
-            <option :value="2">2 线程</option>
-            <option :value="4">4 线程</option>
-            <option :value="8">8 线程</option>
-          </select>
-        </label>
-        <label class="field">
-          <span>模型目录</span>
-          <div class="path-row">
-            <input
-              v-model="config.asr.sherpa_onnx.model_dir"
-              :placeholder="defaultModelPath"
-              readonly
-            />
-            <button class="small-btn" type="button" @click="openModelDir">
-              打开目录
-            </button>
-          </div>
-        </label>
+        <h2>ASR 配置（系统语音识别）</h2>
         <div class="model-status">
-          <div v-if="modelReady" class="status-success">
+          <div v-if="microphoneAvailable && asrReady" class="status-success">
             <span class="status-icon">✓</span>
-            <span class="status-text">模型已就绪</span>
+            <span class="status-text">系统ASR可用</span>
           </div>
           <div v-else class="status-warning">
             <span class="status-icon">⚠</span>
-            <span class="status-text">请下载模型文件到上述目录：model.int8.onnx、tokens.txt</span>
+            <span class="status-text">请检查麦克风与系统语音识别权限（macOS需开启“语音识别”授权）</span>
           </div>
-        </div>
-        <div class="model-download-hint">
-          <p><strong>下载地址：</strong></p>
-          <code>https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-15.tar.bz2</code>
         </div>
       </section>
 
@@ -280,269 +245,146 @@ h1 {
 }
 
 .modal-success .modal-icon {
-  background: #edf9f0;
-  color: #2e9e58;
+  background: #e6f9ef;
+  color: #18a058;
 }
 
 .modal-error .modal-icon {
-  background: #fdeeee;
-  color: #d14038;
+  background: #ffecec;
+  color: #d03050;
 }
 
 .modal-message {
   margin: 0 0 16px;
-  font-size: 14px;
-  color: #17202a;
+  color: #22303c;
+  line-height: 1.4;
+  white-space: pre-wrap;
 }
 
 .modal-btn {
-  width: 100%;
-  border: none;
+  border: 0;
   border-radius: 8px;
-  padding: 10px 16px;
-  font-size: 14px;
+  background: #2f7bd8;
+  color: #fff;
+  padding: 8px 18px;
   cursor: pointer;
-  transition: background-color 0.15s ease;
-}
-
-.path-row {
-  display: flex;
-  gap: 8px;
-  flex: 1;
-}
-
-.path-row input {
-  flex: 1;
-  font-size: 12px;
-  background: #f5f5f5;
-}
-
-.model-status {
-  margin-top: 8px;
-  padding: 10px;
-  border-radius: 6px;
-}
-
-.status-success {
-  background: #edf9f0;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: #2e9e58;
-  font-size: 13px;
-}
-
-.status-warning {
-  background: #fff8e6;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: #d97706;
-  font-size: 13px;
-}
-
-.status-icon {
-  font-size: 16px;
-}
-
-.model-download-hint {
-  margin-top: 12px;
-  padding: 10px;
-  background: #f0f7ff;
-  border-radius: 6px;
-  font-size: 12px;
-  color: #374151;
-}
-
-.model-download-hint p {
-  margin: 0 0 6px;
-  font-weight: 500;
-}
-
-.model-download-hint code {
-  display: block;
-  padding: 6px 8px;
-  background: #fff;
-  border-radius: 4px;
-  font-family: monospace;
-  word-break: break-all;
-  color: #1f2937;
-}
-
-.modal-success .modal-btn {
-  background: #264653;
-  color: #fff;
-}
-
-.modal-success .modal-btn:hover {
-  background: #1d3640;
-}
-
-.modal-error .modal-btn {
-  background: #d14038;
-  color: #fff;
-}
-
-.modal-error .modal-btn:hover {
-  background: #b3352e;
 }
 
 .card {
-  border: 1px solid #d9e2ec;
+  background: #fff;
+  border: 1px solid #dbe4ea;
   border-radius: 10px;
-  background: #ffffff;
   padding: 12px;
   display: grid;
   gap: 10px;
 }
 
-h2 {
+.card h2 {
   margin: 0;
   font-size: 14px;
+  color: #253544;
 }
 
 .field {
   display: grid;
   gap: 6px;
+}
+
+.field > span {
   font-size: 12px;
-}
-
-.secret-row {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 8px;
-  align-items: center;
-}
-
-input,
-select,
-button {
-  font: inherit;
+  color: #4a5c6d;
 }
 
 input,
 select {
-  width: 100%;
-  box-sizing: border-box;
-  border: 1px solid #cdd5df;
+  height: 32px;
+  border: 1px solid #c9d5df;
   border-radius: 8px;
-  padding: 7px 9px;
+  padding: 0 10px;
+  font-size: 13px;
+  color: #1d2a36;
   background: #fff;
 }
 
-.provider-box {
-  margin-top: 2px;
-  border: 1px solid #e6edf3;
-  border-radius: 8px;
-  padding: 10px;
-  background: #fafcfe;
-  display: grid;
-  gap: 8px;
-}
-
-.model-status {
-  margin-top: 4px;
-  padding: 10px;
-  border-radius: 8px;
+.secret-row {
   display: flex;
-  flex-direction: column;
   gap: 8px;
 }
 
-.status-success {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  background: #edf9f0;
-  border-radius: 6px;
-  color: #2e9e58;
-}
-
-.status-warning {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  background: #fff8e6;
-  border-radius: 6px;
-  color: #b36b00;
-}
-
-.status-icon {
-  font-size: 14px;
-  font-weight: bold;
-}
-
-.status-text {
+.secret-row input {
   flex: 1;
-  font-size: 12px;
-}
-
-.download-btn {
-  background: #264653;
-  color: #fff;
-  border-color: #264653;
-  font-size: 11px;
-  padding: 4px 8px;
-}
-
-.download-btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
 }
 
 .small-btn {
-  border: 1px solid #c3d0dc;
-  background: #eef4fa;
+  border: 1px solid #b8c7d4;
+  background: #fff;
+  color: #304455;
   border-radius: 8px;
-  padding: 6px 8px;
+  padding: 0 10px;
+  cursor: pointer;
 }
 
-.secret-btn {
-  min-width: 74px;
-  white-space: nowrap;
-  border-color: #d6dde6;
-  background: #f7f9fc;
-  color: #4e5f73;
+.model-status {
+  margin-top: 2px;
+}
+
+.status-success,
+.status-warning {
+  display: flex;
+  gap: 8px;
+  align-items: center;
   font-size: 12px;
-  padding: 6px 10px;
-  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+  line-height: 1.4;
 }
 
-.secret-btn:hover {
-  background: #f0f4f8;
-  border-color: #c8d2de;
-  color: #3f5166;
+.status-success {
+  color: #176f44;
 }
 
-.secret-btn:active {
-  background: #e8edf4;
+.status-warning {
+  color: #8f5d00;
 }
 
 .actions {
   display: flex;
-  flex-wrap: wrap;
   gap: 8px;
+  justify-content: flex-end;
+  margin-bottom: 6px;
 }
 
 .btn {
-  border: 1px solid rgba(23, 32, 42, 0.25);
-  background: #fff;
-  color: #17202a;
+  height: 34px;
   border-radius: 8px;
-  font-size: 12px;
-  padding: 7px 10px;
+  border: 1px solid #b8c7d4;
+  background: #fff;
+  color: #2c3f50;
+  padding: 0 12px;
+  cursor: pointer;
 }
 
 .btn.primary {
-  border-color: #264653;
-  background: #264653;
+  background: #2f7bd8;
+  border-color: #2f7bd8;
   color: #fff;
 }
 
+.btn:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
 .placeholder {
+  color: #5b6e7f;
   font-size: 13px;
-  color: #52606d;
+}
+
+@media (max-width: 560px) {
+  .actions {
+    justify-content: stretch;
+  }
+
+  .actions .btn {
+    flex: 1;
+  }
 }
 </style>

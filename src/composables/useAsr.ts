@@ -10,14 +10,14 @@ export const isRecording = ref(false)
 export const asrResult = ref('')
 export const asrError = ref('')
 export const microphoneAvailable = ref(false)
-export const modelReady = ref(false)
+export const asrReady = ref(false)
 export const asrInitialized = ref(false)
 export const isVoiceChatting = ref(false)
 
 // 录音按钮状态文本
 export const voiceButtonText = computed(() => {
   if (!microphoneAvailable.value) return '🎙️ 无麦克风'
-  if (!modelReady.value) return '🎙️ 模型未就绪'
+  if (!asrReady.value) return '🎙️ 语音识别不可用'
   if (isRecording.value) return '🎙️ 正在听...'
   if (isVoiceChatting.value) return '⏳ 处理中...'
   return '🎙️ 按住说话'
@@ -25,7 +25,7 @@ export const voiceButtonText = computed(() => {
 
 // 录音按钮是否可点击
 export const canStartVoiceChat = computed(() => {
-  return microphoneAvailable.value && modelReady.value && !isRecording.value && !isVoiceChatting.value
+  return microphoneAvailable.value && asrReady.value && !isRecording.value && !isVoiceChatting.value
 })
 
 // 事件监听器卸载函数
@@ -40,9 +40,10 @@ export async function initAsrEngine(): Promise<void> {
   }
 
   try {
+    await invoke('request_asr_permissions')
     microphoneAvailable.value = await invoke('check_microphone_available')
     await invoke('init_asr_engine')
-    modelReady.value = await invoke('check_asr_model_ready')
+    asrReady.value = await invoke('check_asr_ready')
     asrInitialized.value = true
   } catch (e) {
     console.error('初始化ASR引擎失败:', e)
@@ -51,14 +52,14 @@ export async function initAsrEngine(): Promise<void> {
 }
 
 /**
- * 检查模型是否已下载
+ * 检查系统ASR可用状态
  */
-export async function checkModelReady(): Promise<boolean> {
+export async function checkAsrReady(): Promise<boolean> {
   try {
-    modelReady.value = await invoke('check_asr_model_ready')
-    return modelReady.value
+    asrReady.value = await invoke('check_asr_ready')
+    return asrReady.value
   } catch (e) {
-    console.error('检查模型状态失败:', e)
+    console.error('检查ASR状态失败:', e)
     return false
   }
 }
@@ -162,6 +163,8 @@ export async function setupAsrEventListeners(): Promise<void> {
   // 错误事件
   const unlistenError = await listen<{ message: string }>('asr:error', (event) => {
     asrError.value = event.payload?.message || ''
+    isVoiceChatting.value = false
+    isRecording.value = false
   })
   unlistenFns.push(unlistenError)
 }
@@ -194,12 +197,12 @@ export function useAsr() {
     asrResult,
     asrError,
     microphoneAvailable,
-    modelReady,
+    asrReady,
     asrInitialized,
 
     // 方法
     initAsrEngine,
-    checkModelReady,
+    checkAsrReady,
     startRecording,
     stopRecording,
     toggleRecording,

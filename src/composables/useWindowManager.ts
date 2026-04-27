@@ -5,7 +5,7 @@ export const SCALE_MAX = 1.0
 export const SCALE_CHANGED_EVENT = 'm1://scale-changed'
 export const CONFIG_CHANGED_EVENT = 'm6://config-changed'
 
-export type AsrProvider = 'sherpa-onnx'
+export type AsrProvider = 'system'
 
 export interface AppConfig {
   llm: {
@@ -15,11 +15,6 @@ export interface AppConfig {
   }
   asr: {
     provider: AsrProvider
-    sherpa_onnx: {
-      model_size: 'tiny' | 'base' | 'small'
-      model_dir: string
-      num_threads: number
-    }
   }
   pet: {
     current: string
@@ -41,12 +36,7 @@ export function getDefaultConfig(): AppConfig {
       base_url: 'https://api.openai.com/v1'
     },
     asr: {
-      provider: 'sherpa-onnx',
-      sherpa_onnx: {
-        model_size: 'small',
-        model_dir: '',
-        num_threads: 2
-      }
+      provider: 'system'
     },
     pet: {
       current: 'dog',
