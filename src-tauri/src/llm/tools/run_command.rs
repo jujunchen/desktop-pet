@@ -21,10 +21,13 @@ const ALLOWED_COMMANDS: &[&str] = &[
     "whoami",
     "hostname",
     "ipconfig",
+    "ifconfig",
     "ping",
     "tracert",
+    "traceroute",
     "netstat",
     "tasklist",
+    "ps",
     "tree",
     "type",
     "cat",
@@ -60,21 +63,6 @@ impl Tool for RunCommandTool {
             .and_then(|v| v.as_str())
             .ok_or_else(|| "缺少 command 参数".to_string())?;
 
-        // 检查命令是否在白名单中
-        // 暂不用白名单
-        // let cmd_lower = command.to_lowercase();
-        // let is_allowed = ALLOWED_COMMANDS
-        //     .iter()
-        //     .any(|&allowed| cmd_lower.starts_with(allowed));
-
-        // if !is_allowed {
-        //     return Err(format!(
-        //         "命令 '{}' 不在安全白名单中。\n允许的命令：{}",
-        //         command,
-        //         ALLOWED_COMMANDS.join(", ")
-        //     ));
-        // }
-
         #[cfg(target_os = "windows")]
         {
             let output = Command::new("cmd")
@@ -97,7 +85,6 @@ impl Tool for RunCommandTool {
             if result.is_empty() {
                 Ok("命令执行成功，无输出".to_string())
             } else {
-                // 限制输出长度
                 if result.len() > 2000 {
                     result.truncate(2000);
                     result.push_str("\n...（输出过长，已截断）");
@@ -106,9 +93,40 @@ impl Tool for RunCommandTool {
             }
         }
 
-        #[cfg(not(target_os = "windows"))]
+        #[cfg(target_os = "macos")]
         {
-            Err("执行命令功能仅支持Windows系统".to_string())
+            let output = Command::new("sh")
+                .arg("-c")
+                .arg(command)
+                .output()
+                .map_err(|e| format!("执行失败: {}", e))?;
+
+            let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+            let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+
+            let mut result = String::new();
+            if !stdout.is_empty() {
+                result.push_str(&stdout);
+            }
+            if !stderr.is_empty() {
+                result.push_str("\n错误输出:\n");
+                result.push_str(&stderr);
+            }
+
+            if result.is_empty() {
+                Ok("命令执行成功，无输出".to_string())
+            } else {
+                if result.len() > 2000 {
+                    result.truncate(2000);
+                    result.push_str("\n...（输出过长，已截断）");
+                }
+                Ok(result)
+            }
+        }
+
+        #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+        {
+            Err("执行命令功能仅支持Windows和macOS系统".to_string())
         }
     }
 }

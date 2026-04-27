@@ -4,6 +4,7 @@ use super::registry::{Tool, ToolResult};
 use async_trait::async_trait;
 use serde_json::Value;
 use std::time::Duration;
+use sysinfo::{System, Disks, Disk};
 
 /// 系统状态工具
 pub struct SystemStatusTool;
@@ -84,56 +85,55 @@ impl Tool for SystemStatusTool {
     }
 }
 
-/// 获取CPU使用率（简单实现）
+/// 获取CPU使用率
 async fn get_cpu_usage() -> Option<u32> {
-    #[cfg(target_os = "windows")]
-    {
-        // 简单延迟模拟CPU采样
-        tokio::time::sleep(Duration::from_millis(200)).await;
+    let mut sys = System::new();
+    sys.refresh_cpu();
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    sys.refresh_cpu();
 
-        // 使用 sysinfo 库或者 Windows API
-        // 这里先用随机值模拟（后续可以替换成真实实现）
-        use rand::Rng;
-        let mut rng = rand::thread_rng();
-        Some(rng.gen_range(10..80))
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    {
+    let cpus = sys.cpus();
+    if cpus.is_empty() {
         None
+    } else {
+        let avg_usage: f32 = cpus.iter().map(|cpu| cpu.cpu_usage()).sum::<f32>() / cpus.len() as f32;
+        Some(avg_usage.round() as u32)
     }
 }
 
-/// 获取内存使用
+/// 获取内存使用（GB）
 fn get_memory_usage() -> Option<(u32, u32)> {
-    #[cfg(target_os = "windows")]
-    {
-        use rand::Rng;
-        let mut rng = rand::thread_rng();
-        let total = 16; // 假设16GB
-        let used = rng.gen_range(4..12);
-        Some((used, total))
-    }
+    let mut sys = System::new();
+    sys.refresh_memory();
 
-    #[cfg(not(target_os = "windows"))]
-    {
+    let total_gb = (sys.total_memory() / 1024 / 1024 / 1024) as u32;
+    let used_gb = (sys.used_memory() / 1024 / 1024 / 1024) as u32;
+
+    if total_gb > 0 {
+        Some((used_gb, total_gb))
+    } else {
         None
     }
 }
 
-/// 获取磁盘使用
+/// 获取磁盘使用（GB）- 返回主磁盘的使用情况
 fn get_disk_usage() -> Option<(u32, u32)> {
-    #[cfg(target_os = "windows")]
-    {
-        use rand::Rng;
-        let mut rng = rand::thread_rng();
-        let total = 512; // 假设512GB
-        let used = rng.gen_range(200..400);
-        Some((used, total))
-    }
+    let disks = Disks::new_with_refreshed_list();
 
-    #[cfg(not(target_os = "windows"))]
-    {
+    // 找到主磁盘（通常是最大的那个）
+    let main_disk: Option<&Disk> = disks.iter().max_by_key(|d| d.total_space());
+
+    if let Some(disk) = main_disk {
+        let total_gb = (disk.total_space() / 1024 / 1024 / 1024) as u32;
+        let available_gb = (disk.available_space() / 1024 / 1024 / 1024) as u32;
+        let used_gb = total_gb.saturating_sub(available_gb);
+
+        if total_gb > 0 {
+            Some((used_gb, total_gb))
+        } else {
+            None
+        }
+    } else {
         None
     }
 }

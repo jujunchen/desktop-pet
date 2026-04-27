@@ -11,7 +11,7 @@ use std::process::Command;
 struct AppCandidate {
     path: PathBuf,
     display_name: String,
-    source: String, // "开始菜单" | "桌面" | "Program Files"
+    source: String, // "开始菜单" | "桌面" | "Program Files" | "Applications"
     score: i32,     // 匹配质量分数，用于排序
 }
 
@@ -26,7 +26,7 @@ impl Tool for OpenAppTool {
 
     fn description(&self) -> &str {
         "打开电脑上的任意应用程序。
-当用户说'打开XXX'、'启动XXX'、'运行XXX'、'卸载XXX'时使用。
+当用户说'打开XXX'、'启动XXX'、'运行XXX'时使用。
 如果搜索到多个匹配，会返回候选列表让你选择。"
     }
 
@@ -130,14 +130,76 @@ impl Tool for OpenAppTool {
             }
         }
 
-        #[cfg(not(target_os = "windows"))]
+        #[cfg(target_os = "macos")]
         {
-            Err("打开应用功能仅支持Windows系统".to_string())
+            let app_name_lower = app_name.to_lowercase();
+
+            // 检查是否有 select_index 参数
+            if let Some(Some(index)) = args.get("select_index").map(|v| v.as_i64()) {
+                return launch_by_index_macos(&app_name_lower, index as usize).await;
+            }
+
+            // 方案1：先尝试常用应用的直接启动
+            if let Ok(result) = try_known_apps_macos(&app_name_lower) {
+                return Ok(result);
+            }
+
+            // 方案2：搜索 Applications 目录
+            let mut candidates = Vec::new();
+
+            if let Ok(mut apps) = search_app_candidates_macos(&get_application_dirs_macos(), &app_name_lower).await {
+                candidates.append(&mut apps);
+            }
+
+            // 按分数排序
+            candidates.sort_by(|a, b| b.score.cmp(&a.score));
+            candidates.dedup_by(|a, b| a.path == b.path);
+
+            // 根据候选数量决策
+            match candidates.len() {
+                0 => {
+                    // 尝试用 open -a 直接启动
+                    if try_open_app_macos(&app_name_lower) {
+                        return Ok(format!("汪汪！已尝试打开: {}", app_name));
+                    }
+                    Ok(format!(
+                        "汪呜...找不到'{}'这个应用呢😢\n\
+                        试试说更准确的名字？比如完整的应用名称～",
+                        app_name
+                    ))
+                }
+                1 => {
+                    let candidate = &candidates[0];
+                    if launch_path_macos(&candidate.path) {
+                        Ok(format!("汪汪！已成功打开: {}", candidate.display_name))
+                    } else {
+                        Ok(format!("汪呜...打开失败了: {}", candidate.display_name))
+                    }
+                }
+                n => {
+                    let mut result = format!("找到了 {} 个匹配的应用，请选择：\n\n", n);
+                    for (i, c) in candidates.iter().take(5).enumerate() {
+                        result.push_str(&format!("{}. {} ({})\n", i + 1, c.display_name, c.source));
+                    }
+                    if n > 5 {
+                        result.push_str(&format!("\n...还有 {} 个更多结果", n - 5));
+                    }
+                    result.push_str("\n请用 select_index 参数选择序号，比如：{\"app_name\": \"微信\", \"select_index\": 1}");
+
+                    Ok(result)
+                }
+            }
+        }
+
+        #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+        {
+            Err("打开应用功能仅支持Windows和macOS系统".to_string())
         }
     }
 }
 
-/// 根据序号启动（存储最近一次搜索结果的简化方案：重新搜索再选）
+// ==================== Windows 特定函数 ====================
+
 #[cfg(target_os = "windows")]
 async fn launch_by_index(app_name: &str, index: usize) -> ToolResult {
     let mut candidates = Vec::new();
@@ -170,7 +232,6 @@ async fn launch_by_index(app_name: &str, index: usize) -> ToolResult {
     }
 }
 
-/// 尝试常用应用的直接启动
 #[cfg(target_os = "windows")]
 fn try_known_apps(app_name: &str) -> Result<String, ()> {
     // 预设常用应用的启动命令
@@ -214,7 +275,6 @@ fn try_known_apps(app_name: &str) -> Result<String, ()> {
     ];
 
     for (keyword, exe_name) in known_apps {
-        // 只有精确匹配才直接启动，避免歧义
         if app_name == keyword {
             if let Ok(_) = Command::new("cmd").args(["/c", "start", "", exe_name]).spawn() {
                 return Ok(format!("已成功打开: {}", keyword));
@@ -225,7 +285,6 @@ fn try_known_apps(app_name: &str) -> Result<String, ()> {
     Err(())
 }
 
-/// 使用 Windows start 命令直接尝试启动（仅用于纯英文的可执行文件）
 #[cfg(target_os = "windows")]
 fn try_start_command(app_name: &str) -> Result<String, ()> {
     let is_pure_english = app_name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
@@ -254,7 +313,6 @@ fn try_start_command(app_name: &str) -> Result<String, ()> {
     Err(())
 }
 
-/// 获取开始菜单路径
 #[cfg(target_os = "windows")]
 fn get_start_menu_paths() -> Vec<String> {
     vec![
@@ -263,7 +321,6 @@ fn get_start_menu_paths() -> Vec<String> {
     ]
 }
 
-/// 获取常见安装目录
 #[cfg(target_os = "windows")]
 fn get_common_install_dirs() -> Vec<String> {
     let username = get_username();
@@ -276,7 +333,6 @@ fn get_common_install_dirs() -> Vec<String> {
     ]
 }
 
-/// 搜索快捷方式候选
 #[cfg(target_os = "windows")]
 async fn search_lnk_candidates(dirs: &[String], app_name: &str) -> Result<Vec<AppCandidate>, ()> {
     let mut candidates = Vec::new();
@@ -303,7 +359,6 @@ async fn search_lnk_candidates(dirs: &[String], app_name: &str) -> Result<Vec<Ap
                         });
                     }
                 } else if path.is_dir() {
-                    // 递归搜索一级子目录
                     if let Ok(sub_entries) = std::fs::read_dir(&path) {
                         for sub_entry in sub_entries.flatten() {
                             let sub_path = sub_entry.path();
@@ -334,7 +389,6 @@ async fn search_lnk_candidates(dirs: &[String], app_name: &str) -> Result<Vec<Ap
     Ok(candidates)
 }
 
-/// 搜索 exe 候选
 #[cfg(target_os = "windows")]
 async fn search_exe_candidates(dirs: &[String], app_name: &str) -> Result<Vec<AppCandidate>, ()> {
     let mut candidates = Vec::new();
@@ -363,7 +417,6 @@ async fn search_exe_candidates(dirs: &[String], app_name: &str) -> Result<Vec<Ap
                         });
                     }
                 } else if path.is_dir() {
-                    // 目录名匹配，进入搜索
                     let dirname = path
                         .file_name()
                         .and_then(|n| n.to_str())
@@ -404,33 +457,27 @@ async fn search_exe_candidates(dirs: &[String], app_name: &str) -> Result<Vec<Ap
     Ok(candidates)
 }
 
-/// 计算匹配质量分数
 #[cfg(target_os = "windows")]
 fn calculate_match_score(filename: &str, app_name: &str, patterns: &[String], is_lnk: bool) -> i32 {
     let mut score = 0;
 
-    // 快捷方式优先（用户通常点击的就是快捷方式）
     if is_lnk {
         score += 50;
     }
 
-    // 精确匹配加分
     let name_no_ext = filename.trim_end_matches(".lnk").trim_end_matches(".exe");
     if name_no_ext == app_name {
         score += 100;
     }
 
-    // 文件名开头匹配
     if name_no_ext.starts_with(app_name) {
         score += 50;
     }
 
-    // 包含用户搜索的关键词（不通过别名映射的原始匹配）
     if filename.contains(app_name) {
         score += 30;
     }
 
-    // 别名匹配也加分
     for pattern in patterns {
         if filename.contains(pattern) {
             score += 20;
@@ -440,7 +487,6 @@ fn calculate_match_score(filename: &str, app_name: &str, patterns: &[String], is
     score
 }
 
-/// 构建搜索关键词列表（别名映射）
 #[cfg(target_os = "windows")]
 fn build_search_patterns(app_name: &str) -> Vec<String> {
     let mut patterns = vec![app_name.to_string()];
@@ -474,21 +520,272 @@ fn build_search_patterns(app_name: &str) -> Vec<String> {
     patterns
 }
 
-/// 启动路径（支持 exe 或 lnk）
 #[cfg(target_os = "windows")]
 fn launch_path(path: &PathBuf) -> bool {
-    // 直接用 path 启动，不要转字符串再拼接
     Command::new("cmd")
         .arg("/c")
         .arg("start")
-        .arg("")  // 窗口标题（空，避免路径被误解析）
-        .arg(path)  // 直接传 Path，让 Rust 处理引号和空格
+        .arg("")
+        .arg(path)
         .spawn()
         .is_ok()
 }
 
-/// 获取当前用户名
 #[cfg(target_os = "windows")]
 fn get_username() -> String {
     std::env::var("USERNAME").unwrap_or_else(|_| "Public".to_string())
+}
+
+// ==================== macOS 特定函数 ====================
+
+#[cfg(target_os = "macos")]
+async fn launch_by_index_macos(app_name: &str, index: usize) -> ToolResult {
+    let mut candidates = Vec::new();
+
+    if let Ok(mut apps) = search_app_candidates_macos(&get_application_dirs_macos(), app_name).await {
+        candidates.append(&mut apps);
+    }
+
+    candidates.sort_by(|a, b| b.score.cmp(&a.score));
+    candidates.dedup_by(|a, b| a.path == b.path);
+
+    if index < 1 || index > candidates.len() {
+        return Ok(format!("汪呜...序号 {} 无效，只有 {} 个候选", index, candidates.len()));
+    }
+
+    let candidate = &candidates[index - 1];
+    if launch_path_macos(&candidate.path) {
+        Ok(format!("汪汪！已成功打开: {}", candidate.display_name))
+    } else {
+        Ok(format!("汪呜...打开失败了: {}", candidate.display_name))
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn try_known_apps_macos(app_name: &str) -> Result<String, ()> {
+    let known_apps = [
+        ("safari", "Safari"),
+        ("safari浏览器", "Safari"),
+        ("chrome", "Google Chrome"),
+        ("谷歌", "Google Chrome"),
+        ("谷歌浏览器", "Google Chrome"),
+        ("浏览器", "Google Chrome"),
+        ("firefox", "Firefox"),
+        ("火狐", "Firefox"),
+        ("edge", "Microsoft Edge"),
+        ("vscode", "Visual Studio Code"),
+        ("code", "Visual Studio Code"),
+        ("vs code", "Visual Studio Code"),
+        ("terminal", "Terminal"),
+        ("终端", "Terminal"),
+        ("iterm", "iTerm"),
+        ("iterm2", "iTerm"),
+        ("finder", "Finder"),
+        ("访达", "Finder"),
+        ("spotify", "Spotify"),
+        ("微信", "WeChat"),
+        ("wechat", "WeChat"),
+        ("qq", "QQ"),
+        ("钉钉", "DingTalk"),
+        ("dingtalk", "DingTalk"),
+        ("飞书", "Feishu"),
+        ("feishu", "Feishu"),
+        ("企业微信", "WeCom"),
+        ("wecom", "WeCom"),
+        ("slack", "Slack"),
+        ("notion", "Notion"),
+        ("idea", "IntelliJ IDEA"),
+        ("intellij", "IntelliJ IDEA"),
+        ("xcode", "Xcode"),
+        ("pages", "Pages"),
+        ("numbers", "Numbers"),
+        ("keynote", "Keynote"),
+        ("calendar", "Calendar"),
+        ("日历", "Calendar"),
+        ("mail", "Mail"),
+        ("邮件", "Mail"),
+        ("photos", "Photos"),
+        ("照片", "Photos"),
+        ("music", "Music"),
+        ("音乐", "Music"),
+        ("calculator", "Calculator"),
+        ("计算器", "Calculator"),
+        ("system settings", "System Settings"),
+        ("系统设置", "System Settings"),
+        ("activity monitor", "Activity Monitor"),
+        ("活动监视器", "Activity Monitor"),
+        ("任务管理器", "Activity Monitor"),
+        ("preview", "Preview"),
+        ("预览", "Preview"),
+        ("textedit", "TextEdit"),
+        ("文本编辑", "TextEdit"),
+        ("备忘录", "Notes"),
+        ("notes", "Notes"),
+        ("提醒事项", "Reminders"),
+        ("reminders", "Reminders"),
+        ("discord", "Discord"),
+        ("steam", "Steam"),
+        ("photoshop", "Adobe Photoshop 2024"),
+        ("ps", "Adobe Photoshop 2024"),
+        ("word", "Microsoft Word"),
+        ("excel", "Microsoft Excel"),
+        ("powerpoint", "Microsoft PowerPoint"),
+        ("ppt", "Microsoft PowerPoint"),
+        ("网易云音乐", "NeteaseMusic"),
+        ("neteasemusic", "NeteaseMusic"),
+    ];
+
+    for (keyword, app_name_to_open) in known_apps {
+        if app_name == keyword || app_name == app_name_to_open.to_lowercase() {
+            if Command::new("open")
+                .arg("-a")
+                .arg(app_name_to_open)
+                .spawn()
+                .is_ok()
+            {
+                return Ok(format!("已成功打开: {}", app_name_to_open));
+            }
+        }
+    }
+
+    Err(())
+}
+
+#[cfg(target_os = "macos")]
+fn try_open_app_macos(app_name: &str) -> bool {
+    Command::new("open")
+        .arg("-a")
+        .arg(app_name)
+        .spawn()
+        .is_ok()
+}
+
+#[cfg(target_os = "macos")]
+fn get_application_dirs_macos() -> Vec<String> {
+    let mut dirs = vec![
+        "/Applications".to_string(),
+        "/System/Applications".to_string(),
+    ];
+
+    if let Ok(home) = std::env::var("HOME") {
+        dirs.push(format!("{}/Applications", home));
+    }
+
+    dirs
+}
+
+#[cfg(target_os = "macos")]
+async fn search_app_candidates_macos(dirs: &[String], app_name: &str) -> Result<Vec<AppCandidate>, ()> {
+    let mut candidates = Vec::new();
+    let patterns = build_search_patterns_macos(app_name);
+
+    for dir in dirs {
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    let filename = path
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .unwrap_or("")
+                        .to_lowercase();
+
+                    if filename.ends_with(".app") && patterns.iter().any(|p| filename.contains(p)) {
+                        let score = calculate_match_score_macos(&filename, app_name, &patterns);
+                        let display_name = filename.trim_end_matches(".app").to_string();
+                        candidates.push(AppCandidate {
+                            display_name: capitalize_first(&display_name),
+                            source: "Applications".into(),
+                            path,
+                            score,
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(candidates)
+}
+
+#[cfg(target_os = "macos")]
+fn calculate_match_score_macos(filename: &str, app_name: &str, patterns: &[String]) -> i32 {
+    let mut score = 0;
+
+    let name_no_ext = filename.trim_end_matches(".app");
+    if name_no_ext == app_name {
+        score += 100;
+    }
+
+    if name_no_ext.starts_with(app_name) {
+        score += 50;
+    }
+
+    if filename.contains(app_name) {
+        score += 30;
+    }
+
+    for pattern in patterns {
+        if filename.contains(pattern) {
+            score += 20;
+        }
+    }
+
+    score
+}
+
+#[cfg(target_os = "macos")]
+fn build_search_patterns_macos(app_name: &str) -> Vec<String> {
+    let mut patterns = vec![app_name.to_string()];
+
+    let alias_map = [
+        ("微信", &["wechat", "weixin"][..]),
+        ("qq", &["qq", "tim", "tencent qq"][..]),
+        ("腾讯", &["qq", "tim", "tencent"][..]),
+        ("wechat", &["微信"][..]),
+        ("vscode", &["visual studio code", "code", "vscode"][..]),
+        ("visual studio", &["visual studio"][..]),
+        ("idea", &["intellij idea", "idea"][..]),
+        ("intellij", &["intellij idea"][..]),
+        ("photoshop", &["photoshop", "adobe photoshop", "ps"][..]),
+        ("ps", &["photoshop"][..]),
+        ("网易云", &["neteasemusic", "网易云音乐"][..]),
+        ("钉钉", &["dingtalk", "ding"][..]),
+        ("飞书", &["feishu", "lark"][..]),
+        ("企业微信", &["wecom", "wxwork"][..]),
+        ("steam", &["steam"][..]),
+        ("discord", &["discord"][..]),
+        ("spotify", &["spotify"][..]),
+        ("chrome", &["google chrome"][..]),
+        ("edge", &["microsoft edge"][..]),
+        ("firefox", &["firefox", "mozilla firefox"][..]),
+        ("safari", &["safari"][..]),
+        ("terminal", &["terminal", "iterm"][..]),
+        ("finder", &["finder"][..]),
+    ];
+
+    for (keyword, aliases) in alias_map {
+        if app_name.contains(keyword) {
+            patterns.extend(aliases.iter().map(|s| s.to_string()));
+        }
+    }
+
+    patterns
+}
+
+#[cfg(target_os = "macos")]
+fn launch_path_macos(path: &PathBuf) -> bool {
+    Command::new("open")
+        .arg(path)
+        .spawn()
+        .is_ok()
+}
+
+#[cfg(target_os = "macos")]
+fn capitalize_first(s: &str) -> String {
+    let mut c = s.chars();
+    match c.next() {
+        None => String::new(),
+        Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
+    }
 }
