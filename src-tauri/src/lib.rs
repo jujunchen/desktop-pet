@@ -104,6 +104,12 @@ fn save_config(app: tauri::AppHandle, config: AppConfig) -> Result<AppConfig, St
     app.emit(EVT_CONFIG_CHANGED, &saved)
         .map_err(|e| e.to_string())?;
 
+    // 如果聊天窗口已打开，更新窗口标题
+    if let Some(chat_window) = app.get_webview_window("chat") {
+        let window_title = format!("和{}聊天", saved.pet.name);
+        let _ = chat_window.set_title(&window_title);
+    }
+
     Ok(saved)
 }
 
@@ -157,7 +163,7 @@ async fn chat_with_llm_stream(
     engine: tauri::State<'_, llm::GlobalReActEngine>,
 ) -> Result<(), String> {
     let config = read_app_config_or_default();
-    llm::chat_with_llm_stream(app, config.llm, prompt, history, engine).await
+    llm::chat_with_llm_stream(app, config.llm, prompt, history, config.pet.name, config.pet.prompt, engine).await
 }
 
 
@@ -397,7 +403,7 @@ async fn start_voice_chat(
     let history = vec![];
 
     let engine_state = tauri::Manager::state::<GlobalReActEngine>(&app);
-    llm::chat_with_llm_stream(app.clone(), config.llm, asr_text, history, engine_state).await?;
+    llm::chat_with_llm_stream(app.clone(), config.llm, asr_text, history, config.pet.name, config.pet.prompt, engine_state).await?;
 
     Ok(())
 }
@@ -412,18 +418,21 @@ fn open_chat_window(app: tauri::AppHandle) -> Result<(), String> {
         return Ok(());
     }
 
+    let config = read_app_config_or_default();
+    let window_title = format!("和{}聊天", config.pet.name);
+
     tauri::WebviewWindowBuilder::new(
         &app,
         CHAT_WINDOW_LABEL,
         tauri::WebviewUrl::App("index.html?window=chat".into()),
     )
-    .title("和小白聊天")
+    .title(&window_title)
     .inner_size(420.0, 560.0)
     .resizable(true)
     .minimizable(true)
     .maximizable(false)
     .always_on_top(true)
-    .skip_taskbar(true)
+    // .skip_taskbar(true)  // 注释掉，避免 macOS 快捷键失效问题
     .build()
     .map_err(|e| e.to_string())?;
 
@@ -482,7 +491,7 @@ fn ensure_settings_window(app: &tauri::AppHandle) -> Result<(), String> {
     .minimizable(true)
     .maximizable(false)
     .always_on_top(true)
-    .skip_taskbar(true)
+    // .skip_taskbar(true)  // 注释掉，避免 macOS 快捷键失效问题
     .build()
     .map_err(|e| e.to_string())?;
 
@@ -500,7 +509,7 @@ fn build_pet_context_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::W
 #[cfg(target_os = "macos")]
 fn build_macos_app_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     let settings_i = MenuItem::with_id(app, MENU_SETTINGS, "设置", true, None::<&str>)?;
-    let quit_i = MenuItem::with_id(app, MENU_QUIT, "退出", true, None::<&str>)?;
+    let quit_i = MenuItem::with_id(app, MENU_QUIT, "退出", true, Some("Cmd+q"))?;
     let app_submenu = Submenu::with_items(app, "desktop-pet", true, &[&settings_i, &quit_i])?;
     Menu::with_items(app, &[&app_submenu])
 }

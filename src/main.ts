@@ -3,6 +3,7 @@ import App from './App.vue'
 import SettingsApp from './SettingsApp.vue'
 import ChatApp from './ChatApp.vue'
 import './styles/global.css'
+import './composables/useKeyboardFix'
 
 const params = new URLSearchParams(window.location.search)
 const entry = params.get('window')

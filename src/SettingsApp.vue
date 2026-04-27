@@ -116,11 +116,11 @@ function revealLlmApiKeyTemporarily(): void {
         </label>
         <label class="field">
           <span>模型</span>
-          <input v-model="config.llm.model" placeholder="gpt-4o-mini" />
+          <input v-model="config.llm.model" placeholder="glm-4.7-flash" />
         </label>
         <label class="field">
           <span>Base URL</span>
-          <input v-model="config.llm.base_url" placeholder="https://api.openai.com/v1" />
+          <input v-model="config.llm.base_url" placeholder="https://open.bigmodel.cn/api/paas/v4" />
         </label>
       </section>
 
@@ -140,6 +140,20 @@ function revealLlmApiKeyTemporarily(): void {
 
       <section class="card">
         <h2>宠物配置</h2>
+        <label class="field">
+          <span>宠物名字</span>
+          <input v-model="config.pet.name" placeholder="小白" maxlength="10" />
+        </label>
+        <label class="field">
+          <span>性格设定（提示词）</span>
+          <textarea
+            v-model="config.pet.prompt"
+            placeholder="你是一只可爱的桌面宠物，名字叫{name}..."
+            rows="4"
+            class="prompt-textarea"
+          ></textarea>
+          <small class="field-hint">使用 {name} 作为宠物名字的占位符，会自动替换</small>
+        </label>
         <label class="field">
           <span>宠物种类</span>
           <input v-model="config.pet.current" placeholder="dog" />
@@ -296,14 +310,32 @@ h1 {
 }
 
 input,
-select {
-  height: 32px;
+select,
+textarea {
   border: 1px solid #c9d5df;
   border-radius: 8px;
-  padding: 0 10px;
+  padding: 8px 10px;
   font-size: 13px;
   color: #1d2a36;
   background: #fff;
+  font-family: inherit;
+}
+
+input,
+select {
+  height: 32px;
+}
+
+.prompt-textarea {
+  resize: vertical;
+  line-height: 1.5;
+}
+
+.field-hint {
+  font-size: 11px;
+  color: #7d8c9b;
+  margin-top: -4px;
+  line-height: 1.4;
 }
 
 .secret-row {

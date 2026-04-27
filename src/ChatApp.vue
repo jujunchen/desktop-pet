@@ -11,6 +11,8 @@ import {
   voiceButtonText,
   canStartVoiceChat
 } from './composables/useAsr'
+import { loadConfig, CONFIG_CHANGED_EVENT, type AppConfig } from './composables/useWindowManager'
+import { listen } from '@tauri-apps/api/event'
 
 interface ChatMessage {
   id: number
@@ -26,6 +28,11 @@ const messagesContainerRef = ref<HTMLDivElement | null>(null)
 let messageIdCounter = 0
 let currentStreamingId: number | null = null
 let pendingText = ''
+
+// 宠物配置
+const petName = ref('小白')
+const petAvatar = computed(() => petName.value.charAt(0) || '白')
+let unlistenConfig: (() => void) | null = null
 
 // 初始化ASR
 useAsr()
@@ -68,8 +75,20 @@ watch(isLoading, (loading) => {
   }
 })
 
-onMounted(() => {
-  addMessage('pet', '你好呀！我是小白，有什么想聊的吗？')
+onMounted(async () => {
+  // 加载当前配置
+  const config = await loadConfig()
+  petName.value = config.pet.name || '小白'
+
+  // 监听配置变更事件，实时更新
+  unlistenConfig = await listen<AppConfig>(CONFIG_CHANGED_EVENT, (event) => {
+    const newName = event.payload.pet.name || '小白'
+    if (newName !== petName.value) {
+      petName.value = newName
+    }
+  })
+
+  addMessage('pet', `你好呀！我是${petName.value}，有什么想聊的吗？`)
   nextTick(() => {
     textareaRef.value?.focus()
   })
@@ -79,6 +98,7 @@ onUnmounted(() => {
   currentStreamingId = null
   pendingText = ''
   cleanupVoiceAssistant()
+  if (unlistenConfig) unlistenConfig()
 })
 
 function addMessage(role: 'user' | 'pet', text: string) {
@@ -113,7 +133,7 @@ async function sendMessage() {
 
   // 如果正在加载，给予提示但不阻止输入
   if (isLoading.value) {
-    console.log('小白正在思考中，请稍等～')
+    console.log(`${petName.value}正在思考中，请稍等～`)
     return
   }
 
@@ -161,8 +181,9 @@ function formatTime(timestamp: number): string {
         v-for="msg in messages"
         :key="msg.id"
         :class="['message', msg.role]"
+        v-show="msg.id !== currentStreamingId || msg.text"
       >
-        <div class="message-avatar">{{ msg.role === 'user' ? '你' : '白' }}</div>
+        <div class="message-avatar">{{ msg.role === 'user' ? '你' : petAvatar }}</div>
         <div class="message-content">
           <div class="message-text">{{ msg.text }}</div>
           <div class="message-time">{{ formatTime(msg.timestamp) }}</div>
@@ -170,7 +191,7 @@ function formatTime(timestamp: number): string {
       </div>
 
       <div v-if="isLoading" class="message pet typing">
-        <div class="message-avatar">白</div>
+        <div class="message-avatar">{{ petAvatar }}</div>
         <div class="message-content">
           <div class="typing-dots">
             <span></span>
@@ -210,7 +231,7 @@ function formatTime(timestamp: number): string {
         :disabled="isLoading || (!inputText.trim() && !isRecording)"
         @click="sendMessage"
       >
-        {{ isLoading ? '小白思考中...' : '发送' }}
+        {{ isLoading ? petName + '思考中...' : '发送' }}
       </button>
     </div>
   </div>

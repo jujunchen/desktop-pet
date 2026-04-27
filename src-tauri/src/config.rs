@@ -52,7 +52,7 @@ fn default_llm_model() -> String {
 }
 
 fn default_llm_base_url() -> String {
-    "https://api.openai.com/v1".to_string()
+    "https://open.bigmodel.cn/api/paas/v4".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -113,6 +113,10 @@ pub struct PetConfig {
     pub current: String,
     #[serde(default = "default_pet_scale")]
     pub scale: f64,
+    #[serde(default = "default_pet_name")]
+    pub name: String,
+    #[serde(default = "default_pet_prompt")]
+    pub prompt: String,
 }
 
 impl Default for PetConfig {
@@ -120,6 +124,8 @@ impl Default for PetConfig {
         Self {
             current: default_pet(),
             scale: default_pet_scale(),
+            name: default_pet_name(),
+            prompt: default_pet_prompt(),
         }
     }
 }
@@ -130,6 +136,14 @@ fn default_pet() -> String {
 
 fn default_pet_scale() -> f64 {
     1.0
+}
+
+fn default_pet_name() -> String {
+    "小白".to_string()
+}
+
+fn default_pet_prompt() -> String {
+    "你是一只可爱的桌面宠物，名字叫{name}。你的性格活泼、友好、有点调皮。请用简短、口语化的方式回复，不要太长。回复时要像宠物一样可爱，可以用一些语气词如\"汪\"、\"呀\"、\"呢\"等。".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -179,6 +193,12 @@ impl AppConfig {
 
     fn normalize(&mut self) {
         self.pet.scale = self.pet.scale.clamp(SCALE_MIN, SCALE_MAX);
+        if self.pet.name.trim().is_empty() {
+            self.pet.name = default_pet_name();
+        }
+        if self.pet.prompt.trim().is_empty() {
+            self.pet.prompt = default_pet_prompt();
+        }
         if self.llm.base_url.trim().is_empty() {
             self.llm.base_url = default_llm_base_url();
         }

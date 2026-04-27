@@ -42,9 +42,11 @@ pub async fn chat_with_llm_stream(
     config: LlmConfig,
     prompt: String,
     history: Vec<ChatMessage>,
+    pet_name: String,
+    pet_prompt: String,
     engine: tauri::State<'_, GlobalReActEngine>,
 ) -> Result<(), String> {
     let engine = engine.inner.lock().await;
-    engine.run(app, config, prompt, history).await?;
+    engine.run(app, config, prompt, history, pet_name, pet_prompt).await?;
     Ok(())
 }

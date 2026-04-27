@@ -44,7 +44,7 @@ impl ReActEngine {
     }
 
     /// 获取系统提示词（包含工具描述和 ReAct 指令）
-    pub async fn build_system_prompt(&self) -> String {
+    pub async fn build_system_prompt(&self, pet_name: &str, pet_prompt: &str) -> String {
         let tools = self.tool_registry.lock().await.list();
         let tools_desc: String = tools
             .iter()
@@ -52,13 +52,15 @@ impl ReActEngine {
             .collect::<Vec<_>>()
             .join("\n");
 
+        // 替换提示词中的 {name} 占位符
+        let personality_prompt = pet_prompt.replace("{name}", pet_name);
+
         format!(
-            "你是一只可爱的桌面宠物，名字叫小白。你的性格活泼、友好、有点调皮。
-请用简短、口语化的方式回复，不要太长。回复时要像宠物一样可爱，可以用一些语气词如\"汪\"、\"呀\"、\"呢\"等。
+            "{personality_prompt}
 
 你可以使用以下工具来帮助回答问题：
 
-{}
+{tools_desc}
 
 【重要】使用工具的方法：
 当你需要使用工具时，请严格按照以下格式输出（注意换行），不要包含其他文字：
@@ -101,8 +103,7 @@ impl ReActEngine {
 - 每次只能调用一个工具
 - 调用工具时不要添加其他文字
 - 如果不需要工具，直接用自然语言回答
-- 遇到错误时，要表现得像一只犯错的小宠物，安慰用户",
-            tools_desc
+- 遇到错误时，要表现得像一只犯错的小宠物，安慰用户"
         )
     }
 
@@ -217,11 +218,13 @@ impl ReActEngine {
         config: LlmConfig,
         user_prompt: String,
         history: Vec<ChatMessage>,
+        pet_name: String,
+        pet_prompt: String,
     ) -> Result<ReActOutput, String> {
         let start_time = Instant::now();
 
         // 构建初始消息
-        let system_prompt = self.build_system_prompt().await;
+        let system_prompt = self.build_system_prompt(&pet_name, &pet_prompt).await;
         let mut messages = vec![ChatMessage {
             role: "system".to_string(),
             content: system_prompt,

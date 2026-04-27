@@ -19,6 +19,8 @@ export interface AppConfig {
   pet: {
     current: string
     scale: number
+    name: string
+    prompt: string
   }
 }
 
@@ -40,7 +42,9 @@ export function getDefaultConfig(): AppConfig {
     },
     pet: {
       current: 'dog',
-      scale: 1
+      scale: 1,
+      name: '小白',
+      prompt: '你是一只可爱的桌面宠物，名字叫{name}。你的性格活泼、友好、有点调皮。请用简短、口语化的方式回复，不要太长。回复时要像宠物一样可爱，可以用一些语气词如"汪"、"呀"、"呢"等。'
     }
   }
 }
@@ -79,11 +83,14 @@ export async function loadConfig(): Promise<AppConfig> {
 }
 
 export async function saveConfig(config: AppConfig): Promise<AppConfig> {
+  const defaultConfig = getDefaultConfig()
   const normalized = {
     ...config,
     pet: {
       ...config.pet,
-      scale: clampScale(config.pet.scale)
+      scale: clampScale(config.pet.scale),
+      name: config.pet.name.trim() || defaultConfig.pet.name,
+      prompt: config.pet.prompt.trim() || defaultConfig.pet.prompt
     }
   }
   return invoke<AppConfig>('save_config', { config: normalized })
