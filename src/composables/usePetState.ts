@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core'
 import { emit, listen } from '@tauri-apps/api/event'
 import { computed, onMounted, ref, watch } from 'vue'
-import { onPetClicked as growthOnPetClicked, isPetAlive, growthState, loadGrowthState, EVT_GROWTH_CHANGED } from './usePetGrowth'
+import { onPetClicked as growthOnPetClicked, isPetAlive, growthState, loadGrowthState, EVT_GROWTH_CHANGED, type LifeStage } from './usePetGrowth'
 
 export type BaseState = 'sitting' | 'sleeping'
 export type TempAction =
@@ -56,75 +56,70 @@ const SITTING_TO_BORED_MS = 600_000 // 10分钟进入无聊状态
 const TALKING_REMINDER_INTERVAL_MS = 3600_000 // 1小时连续使用提醒休息
 const IDLE_CHECK_INTERVAL_MS = 1_000
 
-const PET_STATE_META: Record<PetName, Record<PetStateKey, StateMeta>> = {
+type StageKey = 'baby' | 'adult' | 'elder'
+
+function createStateMetaForStage(stage: StageKey, states: PetStateKey[]): Record<PetStateKey, StateMeta> {
+  const meta: Record<string, StateMeta> = {}
+  for (const state of states) {
+    meta[state] = {
+      gifSrc: new URL(`../assets/pets/dog/${stage}/${state}.gif`, import.meta.url).href,
+      loop: state === 'sitting' || state === 'sleeping' || state === 'curious',
+      singlePlayMs: state === 'sitting' || state === 'sleeping' || state === 'curious'
+        ? undefined
+        : (state === 'running' ? 180_000 : state === 'dance' || state === 'frisbee' ? 5_000 : 3_000)
+    }
+  }
+  return meta as Record<PetStateKey, StateMeta>
+}
+
+const allStates: PetStateKey[] = ['sitting', 'sleeping', 'talking', 'happy', 'tilt-head', 'bored', 'backing', 'crazy', 'crazy-plus', 'angry', 'dance', 'frisbee', 'running', 'curious']
+const babyStates: PetStateKey[] = ['sitting', 'sleeping', 'talking', 'happy', 'tilt-head', 'curious', 'running']
+const elderStates: PetStateKey[] = ['sitting', 'sleeping', 'bored', 'talking', 'curious']
+
+const PET_STATE_META: Record<PetName, Record<StageKey, Partial<Record<PetStateKey, StateMeta>>>> = {
   dog: {
-    sitting: {
-      gifSrc: new URL('../assets/pets/dog/sitting.gif', import.meta.url).href,
-      loop: true,
-    },
-    sleeping: {
-      gifSrc: new URL('../assets/pets/dog/sleeping.gif', import.meta.url).href,
-      loop: true,
-    },
-    talking: {
-      gifSrc: new URL('../assets/pets/dog/talking.gif', import.meta.url).href,
-      loop: false,
-      singlePlayMs: 10_000,
-    },
-    happy: {
-      gifSrc: new URL('../assets/pets/dog/happy.gif', import.meta.url).href,
-      loop: false,
-      singlePlayMs: 3_000,
-    },
-    'tilt-head': {
-      gifSrc: new URL('../assets/pets/dog/tilt-head.gif', import.meta.url).href,
-      loop: false,
-      singlePlayMs: 3_000,
-    },
-    bored: {
-      gifSrc: new URL('../assets/pets/dog/bored.gif', import.meta.url).href,
-      loop: false,
-      singlePlayMs: 3_000,
-    },
-    backing: {
-      gifSrc: new URL('../assets/pets/dog/backing.gif', import.meta.url).href,
-      loop: false,
-      singlePlayMs: 1_600,
-    },
-    crazy: {
-      gifSrc: new URL('../assets/pets/dog/crazy.gif', import.meta.url).href,
-      loop: false,
-      singlePlayMs: 3_600,
-    },
-    'crazy-plus': {
-      gifSrc: new URL('../assets/pets/dog/crazy-plus.gif', import.meta.url).href,
-      loop: false,
-      singlePlayMs: 2_600,
-    },
-    'angry': {
-      gifSrc: new URL('../assets/pets/dog/angry.gif', import.meta.url).href,
-      loop: false,
-      singlePlayMs: 2_600,
-    },
-    dance: {
-      gifSrc: new URL('../assets/pets/dog/dance.gif', import.meta.url).href,
-      loop: false,
-      singlePlayMs: 5_000,
-    },
-    frisbee: {
-      gifSrc: new URL('../assets/pets/dog/frisbee.gif', import.meta.url).href,
-      loop: false,
-      singlePlayMs: 5_000,
-    },
-    running: {
-      gifSrc: new URL('../assets/pets/dog/running.gif', import.meta.url).href,
-      loop: false,
-      singlePlayMs: 180_000,
-    },
-    curious: {
-      gifSrc: new URL('../assets/pets/dog/curious.gif', import.meta.url).href,
-      loop: true,
-    },
+    baby: createStateMetaForStage('baby', babyStates),
+    adult: createStateMetaForStage('adult', allStates),
+    elder: createStateMetaForStage('elder', elderStates),
+  }
+}
+
+// 各阶段允许的动作配置
+const STAGE_ALLOWED_ACTIONS: Record<StageKey, {
+  allowed: PetStateKey[]
+  replacements: Partial<Record<PetStateKey, PetStateKey>>
+}> = {
+  baby: {
+    allowed: ['sitting', 'sleeping', 'happy', 'talking', 'tilt-head', 'curious', 'running'],
+    replacements: {
+      'dance': 'happy',
+      'frisbee': 'running',
+      'angry': 'curious',
+      'bored': 'tilt-head',
+      'crazy': 'happy',
+      'crazy-plus': 'happy',
+      'backing': 'running',
+    }
+  },
+  adult: {
+    allowed: ['sitting', 'sleeping', 'happy', 'angry', 'bored', 'curious',
+              'dance', 'frisbee', 'talking', 'tilt-head', 'running',
+              'crazy', 'crazy-plus', 'backing'],
+    replacements: {}
+  },
+  elder: {
+    allowed: ['sitting', 'sleeping', 'bored', 'talking', 'curious'],
+    replacements: {
+      'dance': 'sitting',
+      'frisbee': 'sitting',
+      'happy': 'bored',
+      'running': 'sitting',
+      'angry': 'curious',
+      'tilt-head': 'bored',
+      'crazy': 'bored',
+      'crazy-plus': 'bored',
+      'backing': 'sitting',
+    }
   }
 }
 
@@ -157,8 +152,39 @@ let idleChecker: number | null = null
 let speechTimer: number | null = null
 let started = false
 
+function getStageKey(stage: LifeStage | undefined): StageKey {
+  if (stage === 'Baby') return 'baby'
+  if (stage === 'Elder') return 'elder'
+  return 'adult'
+}
+
+function getEffectiveAction(state: PetStateKey, stage: LifeStage | undefined): PetStateKey {
+  const stageKey = getStageKey(stage)
+  const config = STAGE_ALLOWED_ACTIONS[stageKey]
+
+  if (config.allowed.includes(state)) {
+    return state
+  }
+
+  return config.replacements[state] || 'sitting'
+}
+
+function getStateMetaByStage(state: PetStateKey, stage: LifeStage | undefined): StateMeta {
+  const stageKey = getStageKey(stage)
+  const pet = currentPet.value
+
+  // 优先使用当前阶段的资源
+  const stageMeta = PET_STATE_META[pet]?.[stageKey]?.[state]
+  if (stageMeta) {
+    return stageMeta
+  }
+
+  // 回退到成年阶段的资源
+  return PET_STATE_META[pet].adult[state]!
+}
+
 function getStateMeta(state: PetStateKey): StateMeta {
-  return PET_STATE_META[currentPet.value][state]
+  return getStateMetaByStage(state, growthState.value?.stage)
 }
 
 function getSinglePlayDuration(action: TempAction): number {
@@ -177,9 +203,9 @@ const effectiveBaseState = computed((): PetStateKey => {
   const stage = growthState.value?.stage
   const hunger = growthState.value?.hunger ?? 100
 
-  // 如果有临时动作，优先显示动作动画
+  // 如果有临时动作，优先显示动作动画，并根据阶段进行动作过滤
   if (currentAction.value) {
-    return currentAction.value as PetStateKey
+    return getEffectiveAction(currentAction.value as PetStateKey, stage)
   }
 
   // 根据饥饿值调整（小于20显示饥饿状态）
@@ -187,16 +213,16 @@ const effectiveBaseState = computed((): PetStateKey => {
     return 'curious' as PetStateKey
   }
 
-  // 根据生命阶段显示不同动画
-  if (stage === 'Baby') {
-    // 幼体阶段使用更可爱的动画
-    return baseState.value === 'sleeping' ? 'tilt-head' as PetStateKey : 'happy' as PetStateKey
-  }
+  // // 根据生命阶段显示不同动画
+  // if (stage === 'Baby') {
+  //   // 幼体阶段使用更可爱的动画
+  //   return baseState.value === 'sleeping' ? 'tilt-head' as PetStateKey : 'happy' as PetStateKey
+  // }
 
-  if (stage === 'Elder') {
-    // 老年阶段动作缓慢，使用坐姿或思考
-    return baseState.value === 'sleeping' ? 'sleeping' : 'bored' as PetStateKey
-  }
+  // if (stage === 'Elder') {
+  //   // 老年阶段动作缓慢，使用坐姿或思考
+  //   return baseState.value === 'sleeping' ? 'sleeping' : 'bored' as PetStateKey
+  // }
 
   if (stage === 'Dead') {
     // 死亡状态显示睡觉（或者后续可以加个专门的死亡动画）
@@ -208,7 +234,8 @@ const effectiveBaseState = computed((): PetStateKey => {
 })
 
 export const currentGif = computed(() => {
-  return getStateMeta(effectiveBaseState.value).gifSrc
+  const stage = growthState.value?.stage
+  return getStateMetaByStage(effectiveBaseState.value, stage).gifSrc
 })
 
 // 导出泡泡状态用于 UI 显示
@@ -321,9 +348,12 @@ function enqueueAction(
   priority: ActionPriority,
   interruptible = priority !== 'instruction'
 ): void {
+  const stage = growthState.value?.stage
+  const effectiveAction = getEffectiveAction(action as PetStateKey, stage) as TempAction
+
   enqueueQueuedAction({
-    name: action,
-    duration: getSinglePlayDuration(action),
+    name: effectiveAction,
+    duration: getSinglePlayDuration(effectiveAction),
     priority: priorityValue[priority],
     interruptible,
     createdAt: Date.now()

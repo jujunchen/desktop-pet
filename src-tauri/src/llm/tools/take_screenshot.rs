@@ -4,6 +4,8 @@ use super::registry::{Tool, ToolResult};
 use async_trait::async_trait;
 use chrono::Local;
 use serde_json::Value;
+
+#[cfg(target_os = "macos")]
 use std::process::Command;
 
 /// 截图工具

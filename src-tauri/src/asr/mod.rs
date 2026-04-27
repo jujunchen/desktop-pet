@@ -4,6 +4,7 @@
 use crate::config::AppConfig;
 use std::fs;
 use std::path::PathBuf;
+use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[cfg(target_os = "macos")]

@@ -714,7 +714,7 @@ fn reset_pet_growth(app: tauri::AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn set_onboarding_completed(app: tauri::AppHandle) -> Result<(), String> {
+fn set_onboarding_completed(_app: tauri::AppHandle) -> Result<(), String> {
     let mut config = read_app_config_or_default();
     config.pet.onboarding_completed = true;
     save_app_config(config)?;
@@ -735,8 +735,8 @@ fn open_onboarding_window(app: &tauri::AppHandle) -> Result<(), String> {
         tauri::WebviewUrl::App("index.html?window=onboarding".into()),
     )
     .title("欢迎使用桌面宠物")
-    .inner_size(480.0, 640.0)
-    .resizable(false)
+    .inner_size(480.0, 700.0)
+    .resizable(true)
     .minimizable(false)
     .maximizable(false)
     .always_on_top(true)
@@ -1039,7 +1039,7 @@ pub fn run() {
             if !conf.pet.onboarding_completed {
                 // 隐藏主窗口，显示引导窗口
                 let _ = window.hide();
-                open_onboarding_window(app)?;
+                open_onboarding_window(app.handle())?;
             }
 
             Ok(())

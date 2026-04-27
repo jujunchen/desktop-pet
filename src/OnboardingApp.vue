@@ -10,6 +10,42 @@ const selectedMode = ref<PetMode>('Assistant')
 const petName = ref('小白')
 const petPrompt = ref('你是一只可爱的桌面宠物，名字叫{name}。你的性格活泼、友好、有点调皮。请用简短、口语化的方式回复，不要太长。回复时要像宠物一样可爱，可以用一些语气词如"汪"、"呀"、"呢"等。')
 const saving = ref(false)
+const tooltipVisible = ref(false)
+const tooltipMode = ref<PetMode>('Assistant')
+const tooltipStyle = ref({ top: '0px', left: '0px' })
+
+const modeFeatures = {
+  Assistant: [
+    '立即使用全部功能',
+    '可执行系统指令',
+    '不会衰老死亡',
+    '亲密度仍会增长',
+    '适合追求效率'
+  ],
+  Growth: [
+    '幼体无法执行指令',
+    '需要喂食和互动',
+    '亲密度随时间增长',
+    '会经历成长、衰老、死亡',
+    '可转世继承属性'
+  ]
+}
+
+const tooltipFeatures = computed(() => modeFeatures[tooltipMode.value])
+
+function showFeaturesTooltip(mode: PetMode, event: MouseEvent): void {
+  tooltipMode.value = mode
+  tooltipVisible.value = true
+  const rect = (event.target as HTMLElement).getBoundingClientRect()
+  tooltipStyle.value = {
+    top: `${rect.bottom + 10}px`,
+    left: `${Math.min(rect.left, 200)}px`
+  }
+}
+
+function closeTooltip(): void {
+  tooltipVisible.value = false
+}
 
 const personalityPresets = [
   {
@@ -96,8 +132,7 @@ async function completeSetup(): Promise<void> {
 }
 
 onMounted(() => {
-  // 设置窗口大小
-  getCurrentWindow().setSize({ width: 480, height: 640 })
+  // 窗口大小已在创建时设置
 })
 </script>
 
@@ -124,7 +159,6 @@ onMounted(() => {
     <!-- Step 1: 模式选择 -->
     <Transition name="slide-fade" mode="out-in">
       <div v-if="step === 1" class="step-content" key="step1">
-        <h1 class="step-title">欢迎使用桌面宠物</h1>
         <p class="step-desc">请选择你喜欢的养宠模式</p>
 
         <div class="mode-cards">
@@ -134,11 +168,11 @@ onMounted(() => {
             @click="selectMode('Assistant')"
           >
             <div class="mode-icon">🚀</div>
-            <h3>{{ modeDescription.title }}</h3>
-            <p class="mode-desc-text">{{ modeDescription.desc }}</p>
-            <ul class="mode-features">
-              <li v-for="(feat, idx) in modeDescription.features" :key="idx">{{ feat }}</li>
-            </ul>
+            <h3>助手模式</h3>
+            <p class="mode-desc-text">直接获得成年宠物，拥有完整功能。可以立即让它帮你执行系统指令、控制电脑等操作，同时仍能通过互动增加亲密度。</p>
+            <div class="mode-info-btn" @click.stop="showFeaturesTooltip('Assistant', $event)">
+              <span class="info-icon">!</span>
+            </div>
             <div class="mode-check" v-if="selectedMode === 'Assistant'">✓</div>
           </div>
 
@@ -148,13 +182,25 @@ onMounted(() => {
             @click="selectMode('Growth')"
           >
             <div class="mode-icon">🌱</div>
-            <h3>{{ modeDescription.title }}</h3>
-            <p class="mode-desc-text">{{ modeDescription.desc }}</p>
-            <ul class="mode-features">
-              <li v-for="(feat, idx) in modeDescription.features" :key="idx">{{ feat }}</li>
-            </ul>
+            <h3>养成模式</h3>
+            <p class="mode-desc-text">宠物从幼体开始成长，需要你喂食、互动陪伴。长大后才能帮你执行指令。体验真实的养宠乐趣，见证它的成长与衰老。</p>
+            <div class="mode-info-btn" @click.stop="showFeaturesTooltip('Growth', $event)">
+              <span class="info-icon">!</span>
+            </div>
             <div class="mode-check" v-if="selectedMode === 'Growth'">✓</div>
           </div>
+
+          <!-- 特性详情弹窗 -->
+          <div v-if="tooltipVisible" class="features-tooltip" :style="tooltipStyle">
+            <div class="tooltip-header">
+              <span class="tooltip-title">{{ tooltipMode === 'Growth' ? '🌱 养成模式' : '🚀 助手模式' }}特性</span>
+              <button class="tooltip-close" @click="closeTooltip">×</button>
+            </div>
+            <ul class="tooltip-features">
+              <li v-for="(feat, idx) in tooltipFeatures" :key="idx">{{ feat }}</li>
+            </ul>
+          </div>
+          <div v-if="tooltipVisible" class="tooltip-overlay" @click="closeTooltip"></div>
         </div>
 
         <div class="step-actions">
@@ -408,6 +454,100 @@ onMounted(() => {
   font-weight: bold;
 }
 
+.mode-info-btn {
+  position: absolute;
+  bottom: 16px;
+  right: 16px;
+  width: 28px;
+  height: 28px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 16px;
+  font-weight: bold;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.mode-info-btn:hover {
+  transform: scale(1.1);
+  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.4);
+}
+
+.tooltip-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 99;
+}
+
+.features-tooltip {
+  position: fixed;
+  z-index: 100;
+  background: white;
+  border-radius: 16px;
+  padding: 16px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+  min-width: 240px;
+}
+
+.tooltip-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.tooltip-title {
+  font-weight: 600;
+  color: #333;
+  font-size: 15px;
+}
+
+.tooltip-close {
+  width: 24px;
+  height: 24px;
+  border: none;
+  background: #f5f5f5;
+  color: #888;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 18px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
+.tooltip-close:hover {
+  background: #eee;
+  color: #666;
+}
+
+.tooltip-features {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.tooltip-features li {
+  font-size: 14px;
+  color: #666;
+  margin-bottom: 8px;
+  line-height: 1.5;
+}
+
+.tooltip-features li:last-child {
+  margin-bottom: 0;
+}
+
 .form-group {
   margin-bottom: 20px;
 }
@@ -476,7 +616,7 @@ onMounted(() => {
 }
 
 .step-actions {
-  margin-top: auto;
+  margin-top: 10px;
   padding-top: 16px;
 }
 
