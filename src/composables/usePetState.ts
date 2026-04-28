@@ -90,15 +90,16 @@ const STAGE_ALLOWED_ACTIONS: Record<StageKey, {
   replacements: Partial<Record<PetStateKey, PetStateKey>>
 }> = {
   baby: {
-    allowed: ['sitting', 'sleeping', 'happy', 'talking', 'tilt-head', 'curious', 'running'],
+    allowed: ['sitting', 'sleeping', 'happy', "tilt-head", "dance"],
     replacements: {
       'dance': 'happy',
-      'frisbee': 'running',
-      'angry': 'curious',
+      'frisbee': 'happy',
+      'angry': 'tilt-head',
       'bored': 'tilt-head',
       'crazy': 'happy',
       'crazy-plus': 'happy',
-      'backing': 'running',
+      'backing': 'happy',
+      'talking': 'happy',
     }
   },
   adult: {
@@ -108,16 +109,15 @@ const STAGE_ALLOWED_ACTIONS: Record<StageKey, {
     replacements: {}
   },
   elder: {
-    allowed: ['sitting', 'sleeping', 'bored', 'talking', 'curious'],
+    allowed: ['sitting', 'sleeping', 'happy', "talking"],
     replacements: {
-      'dance': 'sitting',
-      'frisbee': 'sitting',
-      'happy': 'bored',
-      'running': 'sitting',
-      'angry': 'curious',
-      'tilt-head': 'bored',
-      'crazy': 'bored',
-      'crazy-plus': 'bored',
+      'dance': 'happy',
+      'frisbee': 'happy',
+      'running': 'happy',
+      'angry': 'talking',
+      'tilt-head': 'talking',
+      'crazy': 'happy',
+      'crazy-plus': 'happy',
       'backing': 'sitting',
     }
   }
