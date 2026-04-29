@@ -392,10 +392,6 @@ async fn start_voice_chat(
         }
     };
 
-    // 通知前端识别结果
-    app.emit(EVT_ASR_RESULT, serde_json::json!({ "text": asr_text.clone() }))
-        .map_err(|e| e.to_string())?;
-
     // 如果识别结果为空，不发送
     if asr_text.trim().is_empty() {
         app.emit(
@@ -406,12 +402,9 @@ async fn start_voice_chat(
         return Ok(());
     }
 
-    // 自动发送给LLM进行聊天
-    let config = read_app_config_or_default();
-    let history = vec![];
-
-    let engine_state = tauri::Manager::state::<GlobalReActEngine>(&app);
-    llm::chat_with_llm_stream(app.clone(), config.llm, asr_text, history, config.pet.name, config.pet.prompt, engine_state).await?;
+    // 通知前端识别结果，由前端负责发送给LLM
+    app.emit(EVT_ASR_RESULT, serde_json::json!({ "text": asr_text }))
+        .map_err(|e| e.to_string())?;
 
     Ok(())
 }
@@ -436,11 +429,11 @@ fn random_in_range(min: f64, max: f64) -> f64 {
     rng.gen_range(min..=max)
 }
 
-fn calculate_life_stage(alive_days: i64, growth_value: f64, mode: &PetMode) -> LifeStage {
+fn calculate_life_stage(alive_days: i64, growth_value: f64, health: f64, mode: &PetMode) -> LifeStage {
     match mode {
         PetMode::Assistant => LifeStage::Adult,
         PetMode::Growth => {
-            if alive_days >= MAX_LIFESPAN_DAYS {
+            if health <= 0.0 || alive_days >= MAX_LIFESPAN_DAYS {
                 LifeStage::Dead
             } else if alive_days >= ADULT_TO_ELDER_DAYS {
                 LifeStage::Elder
@@ -497,7 +490,12 @@ fn update_growth_state_internal(config: &mut AppConfig) -> (bool, Option<LifeSta
     config.pet.growth.growth = config.pet.growth.affection;
 
     // 计算并更新生命阶段
-    let new_stage = calculate_life_stage(alive_days, config.pet.growth.growth, &config.pet.mode);
+    let new_stage = calculate_life_stage(
+        alive_days,
+        config.pet.growth.growth,
+        config.pet.growth.health,
+        &config.pet.mode,
+    );
     let stage_changed = !matches!((&old_stage, &new_stage), (LifeStage::Dead, LifeStage::Dead)) && old_stage as u8 != new_stage as u8;
 
     config.pet.growth.stage = new_stage;
@@ -568,6 +566,9 @@ fn feed_pet(app: tauri::AppHandle) -> Result<(), String> {
         app.emit(EVT_STAGE_CHANGED, new_stage)
             .map_err(|e| e.to_string())?;
     }
+
+    // 触发喂食动画
+    let _ = app.emit("pet://action", serde_json::json!({ "type": "action", "action": "eat" }));
 
     Ok(())
 }

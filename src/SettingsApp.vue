@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref, computed } from 'vue'
+import { onMounted, ref } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import {
   type AppConfig,
@@ -17,7 +17,7 @@ import {
   checkAsrReady,
   microphoneAvailable
 } from './composables/useAsr'
-import { loadGrowthState, petMode } from './composables/usePetGrowth'
+import { loadGrowthState } from './composables/usePetGrowth'
 
 const config = ref<AppConfig | null>(null)
 const loading = ref(true)
@@ -29,9 +29,6 @@ const showLlmApiKey = ref(false)
 const showResetConfirm = ref(false)
 const resetting = ref(false)
 
-const modeText = computed(() => {
-  return petMode.value === 'Assistant' ? '助手模式' : '养成模式'
-})
 let clearMessageTimer: number | null = null
 let hideLlmApiKeyTimer: number | null = null
 
@@ -193,10 +190,6 @@ function revealLlmApiKeyTemporarily(): void {
             step="0.1"
           />
         </label>
-        <div class="field">
-          <span>当前模式</span>
-          <span class="mode-badge">{{ modeText }}</span>
-        </div>
         <button class="btn reset-btn" @click="showResetConfirm = true">
           重新领养（重置宠物状态）
         </button>

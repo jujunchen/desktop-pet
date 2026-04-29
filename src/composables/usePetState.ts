@@ -17,6 +17,9 @@ export type TempAction =
   | 'dance'
   | 'frisbee'
   | 'curious'
+  | 'eat'
+  | 'hungry'
+  | 'dead'
 
 const EVT_PET_PROCESSING = 'pet://processing'
 const EVT_PET_SPEAKING = 'pet://speaking'
@@ -72,9 +75,9 @@ function createStateMetaForStage(stage: StageKey, states: PetStateKey[]): Record
   return meta as Record<PetStateKey, StateMeta>
 }
 
-const allStates: PetStateKey[] = ['sitting', 'sleeping', 'talking', 'happy', 'tilt-head', 'bored', 'backing', 'crazy', 'crazy-plus', 'angry', 'dance', 'frisbee', 'running', 'curious']
-const babyStates: PetStateKey[] = ['sitting', 'sleeping', 'talking', 'happy', 'tilt-head', 'curious', 'running']
-const elderStates: PetStateKey[] = ['sitting', 'sleeping', 'bored', 'talking', 'curious']
+const allStates: PetStateKey[] = ['sitting', 'sleeping', 'talking', 'happy', 'tilt-head', 'bored', 'backing', 'crazy', 'crazy-plus', 'angry', 'dance', 'frisbee', 'running', 'curious', 'eat', 'hungry', 'dead']
+const babyStates: PetStateKey[] = ['sitting', 'sleeping', 'talking', 'happy', 'tilt-head', 'curious', 'running', 'eat', 'hungry', 'dead']
+const elderStates: PetStateKey[] = ['sitting', 'sleeping', 'bored', 'talking', 'curious', 'eat', 'hungry', 'dead']
 
 const PET_STATE_META: Record<PetName, Record<StageKey, Partial<Record<PetStateKey, StateMeta>>>> = {
   dog: {
@@ -90,7 +93,7 @@ const STAGE_ALLOWED_ACTIONS: Record<StageKey, {
   replacements: Partial<Record<PetStateKey, PetStateKey>>
 }> = {
   baby: {
-    allowed: ['sitting', 'sleeping', 'happy', "tilt-head", "dance"],
+    allowed: ['sitting', 'sleeping', 'happy', 'tilt-head', 'dance', 'eat', 'hungry', 'dead'],
     replacements: {
       'dance': 'happy',
       'frisbee': 'happy',
@@ -105,11 +108,11 @@ const STAGE_ALLOWED_ACTIONS: Record<StageKey, {
   adult: {
     allowed: ['sitting', 'sleeping', 'happy', 'angry', 'bored', 'curious',
               'dance', 'frisbee', 'talking', 'tilt-head', 'running',
-              'crazy', 'crazy-plus', 'backing'],
+              'crazy', 'crazy-plus', 'backing', 'eat', 'hungry', 'dead'],
     replacements: {}
   },
   elder: {
-    allowed: ['sitting', 'sleeping', 'happy', "talking"],
+    allowed: ['sitting', 'sleeping', 'happy', 'talking', 'eat', 'hungry', 'dead'],
     replacements: {
       'dance': 'happy',
       'frisbee': 'happy',
@@ -203,6 +206,11 @@ const effectiveBaseState = computed((): PetStateKey => {
   const stage = growthState.value?.stage
   const hunger = growthState.value?.hunger ?? 100
 
+  // 死亡状态最高优先级：忽略动作队列与其他状态，强制播放 dead 动画
+  if (stage === 'Dead') {
+    return 'dead'
+  }
+
   // 如果有临时动作，优先显示动作动画，并根据阶段进行动作过滤
   if (currentAction.value) {
     return getEffectiveAction(currentAction.value as PetStateKey, stage)
@@ -210,7 +218,7 @@ const effectiveBaseState = computed((): PetStateKey => {
 
   // 根据饥饿值调整（小于20显示饥饿状态）
   if (hunger < 20 && baseState.value === 'sitting') {
-    return 'curious' as PetStateKey
+    return 'hungry' as PetStateKey
   }
 
   // // 根据生命阶段显示不同动画
@@ -223,11 +231,6 @@ const effectiveBaseState = computed((): PetStateKey => {
   //   // 老年阶段动作缓慢，使用坐姿或思考
   //   return baseState.value === 'sleeping' ? 'sleeping' : 'bored' as PetStateKey
   // }
-
-  if (stage === 'Dead') {
-    // 死亡状态显示睡觉（或者后续可以加个专门的死亡动画）
-    return 'sleeping'
-  }
 
   // 成年/助手模式：正常显示
   return baseState.value

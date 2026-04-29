@@ -56,15 +56,15 @@ onMounted(async () => {
 
 <template>
   <main class="status-page">
-    <header class="header">
-      <span class="mode-badge" :class="petMode">{{ modeText }}</span>
-    </header>
-
     <div v-if="loading" class="loading">加载中...</div>
 
     <template v-else-if="growthState">
       <section class="status-card">
         <h3>基本信息</h3>
+        <div class="info-row">
+          <span class="label">当前模式</span>
+          <span class="mode-badge" :class="petMode">{{ modeText }}</span>
+        </div>
         <div class="info-row">
           <span class="label">生命阶段</span>
           <span class="value stage" :class="growthState.stage">{{ stageText }}</span>
@@ -148,31 +148,33 @@ onMounted(async () => {
 </template>
 
 <style scoped>
+:global(html),
+:global(body),
+:global(#app) {
+  height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
 .status-page {
-  min-height: 100vh;
+  height: 100%;
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   padding: 16px 20px;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   overflow-y: auto;
-}
-
-.header {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  margin-bottom: 16px;
+  overflow-x: hidden;
 }
 
 .mode-badge {
-  padding: 6px 12px;
+  padding: 4px 10px;
   border-radius: 20px;
   font-size: 12px;
   font-weight: 500;
 }
 
 .mode-badge.Assistant {
-  background: rgba(255, 255, 255, 0.25);
-  color: white;
+  background: #e3f2fd;
+  color: #1976d2;
 }
 
 .mode-badge.Growth {
