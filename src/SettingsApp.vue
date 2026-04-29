@@ -28,6 +28,7 @@ const showModal = ref(false)
 const showLlmApiKey = ref(false)
 const showResetConfirm = ref(false)
 const resetting = ref(false)
+const capturingKey = ref<'push_to_talk' | 'open_chat' | 'feed_pet' | ''>('')
 
 let clearMessageTimer: number | null = null
 let hideLlmApiKeyTimer: number | null = null
@@ -81,17 +82,77 @@ async function saveAll(): Promise<void> {
   if (!config.value || saving.value) {
     return
   }
+  const pushToTalk = config.value.shortcuts.push_to_talk.trim()
+  const openChat = config.value.shortcuts.open_chat.trim()
+  const feedPet = config.value.shortcuts.feed_pet.trim()
+  const all = [pushToTalk, openChat, feedPet]
+  if (all.some((item) => !item)) {
+    withMessage('快捷键不能为空', 'error')
+    return
+  }
+  if (new Set(all).size !== all.length) {
+    withMessage('快捷键不能重复', 'error')
+    return
+  }
+  if (all.some((item) => !item.includes('Ctrl+'))) {
+    withMessage('快捷键必须包含 Ctrl', 'error')
+    return
+  }
+  if (all.some((item) => item.split('+').filter(Boolean).length > 3)) {
+    withMessage('快捷键格式不支持多个主键，请使用如 Ctrl+Shift+F', 'error')
+    return
+  }
   saving.value = true
   try {
     config.value.pet.scale = clampScale(config.value.pet.scale)
+    config.value.shortcuts.push_to_talk = pushToTalk
+    config.value.shortcuts.open_chat = openChat
+    config.value.shortcuts.feed_pet = feedPet
     config.value = await saveConfig(config.value)
-    withMessage('保存成功，重启应用后生效', 'success')
+    withMessage('保存成功，快捷键已立即生效', 'success')
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     withMessage(`保存失败: ${message}`, 'error')
   } finally {
     saving.value = false
   }
+}
+
+function beginCapture(target: 'push_to_talk' | 'open_chat' | 'feed_pet'): void {
+  capturingKey.value = target
+}
+
+function normalizeKeyName(key: string): string {
+  if (key === ' ') return 'Space'
+  if (key.length === 1) return key.toUpperCase()
+  const lowered = key.toLowerCase()
+  if (lowered === 'control') return 'Ctrl'
+  if (lowered === 'escape') return 'Esc'
+  if (lowered === 'arrowup') return 'Up'
+  if (lowered === 'arrowdown') return 'Down'
+  if (lowered === 'arrowleft') return 'Left'
+  if (lowered === 'arrowright') return 'Right'
+  return key.charAt(0).toUpperCase() + key.slice(1)
+}
+
+function captureShortcut(event: KeyboardEvent, target: 'push_to_talk' | 'open_chat' | 'feed_pet'): void {
+  event.preventDefault()
+  if (!config.value) return
+  if (!event.ctrlKey) return
+
+  const parts: string[] = ['Ctrl']
+  if (event.shiftKey) parts.push('Shift')
+  if (event.altKey) parts.push('Alt')
+  if (event.metaKey) parts.push('Meta')
+
+  const normalized = normalizeKeyName(event.key)
+  if (!['Ctrl', 'Shift', 'Alt', 'Meta'].includes(normalized)) {
+    parts.push(normalized)
+  }
+  if (parts.length < 2) return
+
+  config.value.shortcuts[target] = parts.join('+')
+  capturingKey.value = ''
 }
 
 function revealLlmApiKeyTemporarily(): void {
@@ -193,6 +254,44 @@ function revealLlmApiKeyTemporarily(): void {
         <button class="btn reset-btn" @click="showResetConfirm = true">
           重新领养（重置宠物状态）
         </button>
+      </section>
+
+      <section class="card">
+        <h2>全局快捷键</h2>
+        <small class="field-hint">按住说话为按下开始录音，松开结束录音。点击输入框后直接按组合键录入。</small>
+        <label class="field">
+          <span>按住说话</span>
+          <input
+            :value="config.shortcuts.push_to_talk"
+            readonly
+            :class="{ capturing: capturingKey === 'push_to_talk' }"
+            @focus="beginCapture('push_to_talk')"
+            @blur="capturingKey = ''"
+            @keydown="captureShortcut($event, 'push_to_talk')"
+          />
+        </label>
+        <label class="field">
+          <span>文本对话</span>
+          <input
+            :value="config.shortcuts.open_chat"
+            readonly
+            :class="{ capturing: capturingKey === 'open_chat' }"
+            @focus="beginCapture('open_chat')"
+            @blur="capturingKey = ''"
+            @keydown="captureShortcut($event, 'open_chat')"
+          />
+        </label>
+        <label class="field">
+          <span>喂食</span>
+          <input
+            :value="config.shortcuts.feed_pet"
+            readonly
+            :class="{ capturing: capturingKey === 'feed_pet' }"
+            @focus="beginCapture('feed_pet')"
+            @blur="capturingKey = ''"
+            @keydown="captureShortcut($event, 'feed_pet')"
+          />
+        </label>
       </section>
 
       <!-- 重置确认弹窗 -->
@@ -358,6 +457,11 @@ textarea {
   color: #1d2a36;
   background: #fff;
   font-family: inherit;
+}
+
+input.capturing {
+  border-color: #2f7bd8;
+  box-shadow: 0 0 0 3px rgba(47, 123, 216, 0.15);
 }
 
 input,

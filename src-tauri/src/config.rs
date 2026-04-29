@@ -15,6 +15,8 @@ pub struct AppConfig {
     pub asr: AsrConfig,
     #[serde(default)]
     pub pet: PetConfig,
+    #[serde(default)]
+    pub shortcuts: ShortcutConfig,
 }
 
 impl Default for AppConfig {
@@ -23,8 +25,41 @@ impl Default for AppConfig {
             llm: LlmConfig::default(),
             asr: AsrConfig::default(),
             pet: PetConfig::default(),
+            shortcuts: ShortcutConfig::default(),
         }
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ShortcutConfig {
+    #[serde(default = "default_shortcut_push_to_talk")]
+    pub push_to_talk: String,
+    #[serde(default = "default_shortcut_open_chat")]
+    pub open_chat: String,
+    #[serde(default = "default_shortcut_feed_pet")]
+    pub feed_pet: String,
+}
+
+impl Default for ShortcutConfig {
+    fn default() -> Self {
+        Self {
+            push_to_talk: default_shortcut_push_to_talk(),
+            open_chat: default_shortcut_open_chat(),
+            feed_pet: default_shortcut_feed_pet(),
+        }
+    }
+}
+
+fn default_shortcut_push_to_talk() -> String {
+    "Ctrl+Shift+Space".to_string()
+}
+
+fn default_shortcut_open_chat() -> String {
+    "Ctrl+Shift+C".to_string()
+}
+
+fn default_shortcut_feed_pet() -> String {
+    "Ctrl+Shift+F".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -307,6 +342,16 @@ impl AppConfig {
 
         if self.asr.provider != "system" {
             self.asr.provider = default_asr_provider();
+        }
+
+        if self.shortcuts.push_to_talk.trim().is_empty() {
+            self.shortcuts.push_to_talk = default_shortcut_push_to_talk();
+        }
+        if self.shortcuts.open_chat.trim().is_empty() {
+            self.shortcuts.open_chat = default_shortcut_open_chat();
+        }
+        if self.shortcuts.feed_pet.trim().is_empty() {
+            self.shortcuts.feed_pet = default_shortcut_feed_pet();
         }
 
         // 规范化养成状态

@@ -14,6 +14,7 @@ use tauri::{
     window::Color,
     Emitter, LogicalPosition, Manager, Position, Size, WebviewUrl, WebviewWindowBuilder,
 };
+use tauri_plugin_global_shortcut::{GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 #[cfg(target_os = "windows")]
 use windows_sys::Win32::System::SystemInformation::GetTickCount;
 #[cfg(target_os = "windows")]
@@ -74,6 +75,103 @@ fn read_app_config_or_default() -> AppConfig {
     }
 }
 
+fn parse_ctrl_shortcut(value: &str) -> Result<Shortcut, String> {
+    value
+        .parse::<Shortcut>()
+        .map_err(|e| format!("快捷键格式无效 `{}`: {}", value, e))
+}
+
+fn validate_shortcuts(conf: &AppConfig) -> Result<(), String> {
+    let shortcuts = [&conf.shortcuts.push_to_talk, &conf.shortcuts.open_chat, &conf.shortcuts.feed_pet];
+    for value in shortcuts {
+        let shortcut = parse_ctrl_shortcut(value)?;
+        if !shortcut.mods.contains(Modifiers::CONTROL) {
+            return Err(format!("快捷键 `{}` 必须包含 Ctrl", value));
+        }
+    }
+    if conf.shortcuts.push_to_talk == conf.shortcuts.open_chat
+        || conf.shortcuts.push_to_talk == conf.shortcuts.feed_pet
+        || conf.shortcuts.open_chat == conf.shortcuts.feed_pet
+    {
+        return Err("快捷键不能重复".to_string());
+    }
+    Ok(())
+}
+
+fn unregister_shortcuts(app: &tauri::AppHandle, conf: &AppConfig) {
+    for value in [&conf.shortcuts.push_to_talk, &conf.shortcuts.open_chat, &conf.shortcuts.feed_pet] {
+        if let Ok(sc) = parse_ctrl_shortcut(value) {
+            let _ = app.global_shortcut().unregister(sc);
+        }
+    }
+}
+
+fn register_shortcuts(app: &tauri::AppHandle, conf: &AppConfig) -> Result<(), String> {
+    validate_shortcuts(conf)?;
+
+    let push_to_talk = parse_ctrl_shortcut(&conf.shortcuts.push_to_talk)?;
+    let open_chat = parse_ctrl_shortcut(&conf.shortcuts.open_chat)?;
+    let feed_pet_shortcut = parse_ctrl_shortcut(&conf.shortcuts.feed_pet)?;
+    let scope = app.clone();
+
+    app.global_shortcut()
+        .on_shortcut(push_to_talk, move |app, shortcut, event| {
+            if *shortcut != push_to_talk {
+                return;
+            }
+            let state = event.state();
+            let app_handle = app.clone();
+            tauri::async_runtime::spawn(async move {
+                match state {
+                    ShortcutState::Pressed => {
+                        let _ = start_asr_recording(app_handle.clone(), app_handle.state::<AppState>()).await;
+                    }
+                    ShortcutState::Released => {
+                        let _ = stop_asr_recording(app_handle.clone(), app_handle.state::<AppState>()).await;
+                    }
+                }
+            });
+        })
+        .map_err(|e| format!("注册按住说话快捷键失败: {}", e))?;
+
+    scope
+        .global_shortcut()
+        .on_shortcut(open_chat, move |app, shortcut, event| {
+            if *shortcut == open_chat && event.state() == ShortcutState::Pressed {
+                let _ = open_chat_window(app.clone());
+            }
+        })
+        .map_err(|e| format!("注册文本对话快捷键失败: {}", e))?;
+
+    scope
+        .global_shortcut()
+        .on_shortcut(feed_pet_shortcut, move |app, shortcut, event| {
+            if *shortcut == feed_pet_shortcut && event.state() == ShortcutState::Pressed {
+                let _ = feed_pet(app.clone());
+            }
+        })
+        .map_err(|e| format!("注册喂食快捷键失败: {}", e))?;
+
+    Ok(())
+}
+
+fn rebind_shortcuts(app: &tauri::AppHandle, before: &AppConfig, after: &AppConfig) -> Result<(), String> {
+    if before.shortcuts.push_to_talk == after.shortcuts.push_to_talk
+        && before.shortcuts.open_chat == after.shortcuts.open_chat
+        && before.shortcuts.feed_pet == after.shortcuts.feed_pet
+    {
+        return Ok(());
+    }
+
+    unregister_shortcuts(app, before);
+    if let Err(err) = register_shortcuts(app, after) {
+        let _ = register_shortcuts(app, before);
+        return Err(err);
+    }
+
+    Ok(())
+}
+
 fn persist_scale(app: &tauri::AppHandle, scale: f64) -> Result<f64, String> {
     let normalized = clamp_scale(scale);
     let mut conf = read_app_config_or_default();
@@ -105,7 +203,9 @@ fn load_config() -> Result<AppConfig, String> {
 
 #[tauri::command]
 fn save_config(app: tauri::AppHandle, config: AppConfig) -> Result<AppConfig, String> {
+    let previous = read_app_config_or_default();
     let saved = save_app_config(config)?;
+    rebind_shortcuts(&app, &previous, &saved)?;
 
     app.emit(EVT_SCALE_CHANGED, saved.pet.scale)
         .map_err(|e| e.to_string())?;
@@ -978,6 +1078,7 @@ fn build_tray(app: &tauri::App) -> tauri::Result<()> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let mut builder = tauri::Builder::default()
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .manage(AppState {
             asr_engine: Arc::new(Mutex::new(None)),
             audio_recorder: Mutex::new(AudioRecorder::new()),
@@ -1024,6 +1125,9 @@ pub fn run() {
             let _ = window.set_background_color(Some(Color(0, 0, 0, 0)));
 
             let conf = read_app_config_or_default();
+            if let Err(err) = register_shortcuts(&app.handle(), &conf) {
+                eprintln!("快捷键注册失败，已跳过: {}", err);
+            }
             apply_window_scale(&window, conf.pet.scale)?;
 
             // Place at bottom-right when app starts.

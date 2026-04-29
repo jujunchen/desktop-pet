@@ -22,6 +22,11 @@ export interface AppConfig {
     name: string
     prompt: string
   }
+  shortcuts: {
+    push_to_talk: string
+    open_chat: string
+    feed_pet: string
+  }
 }
 
 export interface OnlineAsrConfig {
@@ -45,6 +50,11 @@ export function getDefaultConfig(): AppConfig {
       scale: 1,
       name: '小白',
       prompt: '你是一只可爱的桌面宠物，名字叫{name}。你的性格活泼、友好、有点调皮。请用简短、口语化的方式回复，不要太长。回复时要像宠物一样可爱，可以用一些语气词如"汪"、"呀"、"呢"等。'
+    },
+    shortcuts: {
+      push_to_talk: 'Ctrl+Shift+Space',
+      open_chat: 'Ctrl+Shift+C',
+      feed_pet: 'Ctrl+Shift+F'
     }
   }
 }
