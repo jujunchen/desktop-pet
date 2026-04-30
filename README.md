@@ -11,6 +11,8 @@
 - Rust 侧工具模块（系统状态、时间、截图、命令执行、应用打开、宠物控制等）
 - 全局快捷键能力（Tauri 插件）
 
+<iframe src="//player.bilibili.com/player.html?isOutside=true&aid=116487129923737&bvid=BV1fG9QBCE5w&cid=37941218489&p=1" scrolling="no" border="0" frameborder="no" framespacing="0" allowfullscreen="true"></iframe>
+
 ## 技术栈
 
 - 前端：Vue 3、TypeScript、Vite
