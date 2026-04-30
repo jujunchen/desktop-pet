@@ -3,7 +3,7 @@
 一个基于 **Tauri 2 + Vue 3 + TypeScript + Rust** 的桌面宠物应用。  
 应用以透明置顶窗口运行，包含宠物状态动画、聊天/语音能力与系统工具调用能力。
 
-## 功能概览
+## 🐶功能概览
 
 - 桌面宠物主界面（透明、无边框、置顶）
 - 宠物成长与状态管理（喂食、睡眠、心情等）
@@ -11,16 +11,16 @@
 - Rust 侧工具模块（系统状态、时间、截图、命令执行、应用打开、宠物控制等）
 - 全局快捷键能力（Tauri 插件）
 
-<iframe src="https://player.bilibili.com/player.html?isOutside=true&aid=116487129923737&bvid=BV1fG9QBCE5w&cid=37941218489&p=1&autoplay=0" scrolling="no" border="0" frameborder="no" framespacing="0" allowfullscreen="true"></iframe>
+🐶---->[演示视频](https://www.bilibili.com/video/BV1fG9QBCE5w/?vd_source=7467b6155503c40aa7c64ce91f85c810)
 
-## 技术栈
+## 🐱技术栈
 
 - 前端：Vue 3、TypeScript、Vite
 - 桌面容器：Tauri 2
 - 后端：Rust（Tokio、Reqwest、Sysinfo 等）
 - 音频处理：cpal、hound、rubato
 
-## 项目结构
+## 🐭项目结构
 
 ```text
 .
@@ -48,7 +48,7 @@
 └── AGENTS.md                   # 仓库协作约定
 ```
 
-## 环境要求
+## 🐰环境要求
 
 - Node.js 18+（建议 LTS）
 - npm 9+
@@ -63,7 +63,7 @@
 npm install
 ```
 
-## 开发指南
+## 🐻开发指南
 
 ### 1) 前端开发（仅 Vue）
 
@@ -105,14 +105,14 @@ cargo check --manifest-path src-tauri/Cargo.toml
 
 用于快速校验后端改动是否可编译。
 
-## 代码规范
+## 🐼代码规范
 
 - TypeScript / Vue：2 空格缩进，变量与函数使用 `camelCase`，组件使用 `PascalCase`
 - Rust：遵循 `rustfmt` 默认格式，函数/模块使用 `snake_case`，结构体/枚举使用 `PascalCase`
 - 组合式函数命名统一 `useXxx`（示例：`usePetState.ts`）
 - UI 状态逻辑优先放 `src/composables`，系统工具逻辑放 `src-tauri/src/llm/tools`
 
-## 验证与测试
+## 🐨验证与测试
 
 当前仓库未集成完整自动化测试，建议按改动类型执行最小验证：
 
@@ -120,7 +120,7 @@ cargo check --manifest-path src-tauri/Cargo.toml
 - 桌面联调：`npm run tauri dev` 进行手工 smoke test
 - Rust 改动：`cargo check --manifest-path src-tauri/Cargo.toml`
 
-## 常见问题
+## 🐯常见问题
 
 ### 1. `npm run tauri dev` 无法启动
 
@@ -134,7 +134,7 @@ cargo check --manifest-path src-tauri/Cargo.toml
 
 优先检查 Vite 服务是否正常运行；必要时重启 `npm run tauri dev`。
 
-## 提交规范
+## 🦁提交规范
 
 建议使用 Conventional Commits：
 
@@ -145,10 +145,3 @@ cargo check --manifest-path src-tauri/Cargo.toml
 - `chore: ...`
 
 示例：`fix(llm-tools): handle timeout in command tool`
-
-## 参考文档
-
-- [AGENTS.md](./AGENTS.md)
-- [资源/总体方案.md](./资源/总体方案.md)
-- [资源/详细设计.md](./资源/详细设计.md)
-- [资源/v1.2.md](./资源/v1.2.md)
