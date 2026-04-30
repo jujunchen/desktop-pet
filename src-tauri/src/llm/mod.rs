@@ -10,6 +10,7 @@ pub use react::{ChatMessage, ReActEngine};
 pub use tools::{register_builtin_tools, ToolRegistry};
 
 use crate::config::LlmConfig;
+use crate::memory::LayeredMemoryEngine;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
@@ -36,6 +37,9 @@ impl Default for GlobalReActEngine {
     }
 }
 
+/// 全局记忆引擎状态包装
+pub type MemoryEngineState = Arc<Mutex<LayeredMemoryEngine>>;
+
 /// LLM 聊天入口（ReAct 模式）
 pub async fn chat_with_llm_stream(
     app: tauri::AppHandle,
@@ -45,8 +49,10 @@ pub async fn chat_with_llm_stream(
     pet_name: String,
     pet_prompt: String,
     engine: tauri::State<'_, GlobalReActEngine>,
+    memory_engine: tauri::State<'_, crate::GlobalMemoryEngine>,
 ) -> Result<(), String> {
     let engine = engine.inner.lock().await;
-    engine.run(app, config, prompt, history, pet_name, pet_prompt).await?;
+    let memory = memory_engine.inner.lock().await;
+    engine.run(app, config, prompt, history, pet_name, pet_prompt, memory).await?;
     Ok(())
 }

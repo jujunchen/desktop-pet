@@ -8,6 +8,7 @@
 
 use super::tools::{ToolRegistry, ToolResult};
 use crate::config::LlmConfig;
+use crate::memory::LayeredMemoryEngine;
 use reqwest::Client;
 use serde_json::Value;
 use std::sync::Arc;
@@ -44,7 +45,13 @@ impl ReActEngine {
     }
 
     /// 获取系统提示词（包含工具描述和 ReAct 指令）
-    pub async fn build_system_prompt(&self, pet_name: &str, pet_prompt: &str) -> String {
+    pub async fn build_system_prompt(
+        &self,
+        pet_name: &str,
+        pet_prompt: &str,
+        memory: Option<&mut tokio::sync::MutexGuard<'_, LayeredMemoryEngine>>,
+        user_query: &str,
+    ) -> String {
         let tools = self.tool_registry.lock().await.list();
         let tools_desc: String = tools
             .iter()
@@ -55,8 +62,27 @@ impl ReActEngine {
         // 替换提示词中的 {name} 占位符
         let personality_prompt = pet_prompt.replace("{name}", pet_name);
 
+        // 构建记忆部分
+        let memory_prompt = if let Some(mem) = memory {
+            let memories = mem.retrieve(user_query, 5);
+            if !memories.is_empty() {
+                let memory_text: Vec<String> = memories
+                    .iter()
+                    .map(|m| format!("- {}", m))
+                    .collect();
+                format!(
+                    "\n\n【关于主人的记忆】\n{}\n\n请根据这些记忆回复主人，要体现出我们熟悉的感觉，不要显得陌生~",
+                    memory_text.join("\n")
+                )
+            } else {
+                String::new()
+            }
+        } else {
+            String::new()
+        };
+
         format!(
-            "{personality_prompt}
+            "{personality_prompt}{memory_prompt}
 
 你可以使用以下工具来帮助回答问题：
 
@@ -220,11 +246,12 @@ impl ReActEngine {
         history: Vec<ChatMessage>,
         pet_name: String,
         pet_prompt: String,
+        mut memory: tokio::sync::MutexGuard<'_, LayeredMemoryEngine>,
     ) -> Result<ReActOutput, String> {
         let start_time = Instant::now();
 
-        // 构建初始消息
-        let system_prompt = self.build_system_prompt(&pet_name, &pet_prompt).await;
+        // 构建初始消息（包含记忆）
+        let system_prompt = self.build_system_prompt(&pet_name, &pet_prompt, Some(&mut memory), &user_prompt).await;
         let mut messages = vec![ChatMessage {
             role: "system".to_string(),
             content: system_prompt,

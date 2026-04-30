@@ -724,6 +724,7 @@ dependencies = [
  "tauri-plugin-global-shortcut",
  "tokio",
  "tokio-util",
+ "uuid",
  "windows-sys 0.59.0",
 ]
 

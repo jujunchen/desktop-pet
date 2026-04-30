@@ -14,6 +14,7 @@ import {
 import { loadConfig, CONFIG_CHANGED_EVENT, type AppConfig } from './composables/useWindowManager'
 import { listen } from '@tauri-apps/api/event'
 import { onChatCompleted, growthState, loadGrowthState, petMode } from './composables/usePetGrowth'
+import { saveChatHistory } from './composables/useMemory'
 
 interface ChatMessage {
   id: number
@@ -122,11 +123,26 @@ onMounted(async () => {
   })
 })
 
-onUnmounted(() => {
+onUnmounted(async () => {
+  // 如果正在思考中，等待回复完成后再保存
+  if (isLoading.value && currentStreamingId !== null) {
+    // 等待最多 5 秒让 LLM 完成回复
+    const waitStartTime = Date.now()
+    while (isLoading.value && Date.now() - waitStartTime < 5000) {
+      await new Promise(resolve => setTimeout(resolve, 100))
+    }
+  }
+
   currentStreamingId = null
   pendingText = ''
   cleanupVoiceAssistant()
   if (unlistenConfig) unlistenConfig()
+
+  // 保存聊天记录到记忆（跳过第一条欢迎消息）
+  const messagesToSave = messages.value.slice(1) // 跳过欢迎消息
+  if (messagesToSave.length > 0) {
+    await saveChatHistory(messagesToSave)
+  }
 })
 
 function addMessage(role: 'user' | 'pet', text: string) {

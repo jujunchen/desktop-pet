@@ -42,7 +42,8 @@
       "WebFetch(domain:crates.io)",
       "Bash(sips *)",
       "Bash(cargo build *)",
-      "Bash(curl -s http://localhost:1420)"
+      "Bash(curl -s http://localhost:1420)",
+      "Bash(cargo add *)"
     ]
   }
 }

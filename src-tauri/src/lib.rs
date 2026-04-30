@@ -2,11 +2,13 @@ mod audio;
 mod asr;
 mod config;
 mod llm;
+mod memory;
 
 use audio::AudioRecorder;
 use asr::{create_engine, AsrEngine};
 use config::{load_config as load_app_config, save_config as save_app_config, AppConfig, GrowthState, LifeStage, PetMode};
 use llm::{ChatMessage, GlobalReActEngine};
+use memory::{LayeredMemoryEngine, MemoryStats, MemoryType};
 use std::sync::{Arc, Mutex};
 use tauri::{
     menu::{Menu, MenuItem, Submenu},
@@ -62,6 +64,18 @@ const EVT_PET_DIED: &str = "pet://died";
 pub struct AppState {
     asr_engine: Arc<Mutex<Option<Box<dyn AsrEngine>>>>,
     audio_recorder: Mutex<AudioRecorder>,
+}
+
+/// 全局记忆引擎状态
+#[derive(Clone, Default)]
+pub struct GlobalMemoryEngine {
+    inner: Arc<tokio::sync::Mutex<LayeredMemoryEngine>>,
+}
+
+impl GlobalMemoryEngine {
+    pub fn new() -> Self {
+        Self::default()
+    }
 }
 
 fn clamp_scale(scale: f64) -> f64 {
@@ -269,9 +283,11 @@ async fn chat_with_llm_stream(
     prompt: String,
     history: Vec<ChatMessage>,
     engine: tauri::State<'_, llm::GlobalReActEngine>,
+    memory_engine: tauri::State<'_, GlobalMemoryEngine>,
 ) -> Result<(), String> {
     let config = read_app_config_or_default();
-    llm::chat_with_llm_stream(app, config.llm, prompt, history, config.pet.name, config.pet.prompt, engine).await
+
+    llm::chat_with_llm_stream(app, config.llm, prompt, history, config.pet.name, config.pet.prompt, engine, memory_engine).await
 }
 
 
@@ -822,6 +838,63 @@ fn set_onboarding_completed(_app: tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+// ==================== 记忆系统相关命令 ====================
+
+#[tauri::command]
+async fn add_memory(
+    content: String,
+    memory_type: String,
+    memory_engine: tauri::State<'_, GlobalMemoryEngine>,
+) -> Result<String, String> {
+    let mem_type = match memory_type.as_str() {
+        "chat" => MemoryType::ChatHistory,
+        "fact" => MemoryType::UserFact,
+        "interaction" => MemoryType::Interaction,
+        _ => MemoryType::ChatHistory,
+    };
+
+    let mut memory = memory_engine.inner.lock().await;
+    let config = read_app_config_or_default();
+    memory.add_memory(&content, mem_type, Some(&config.llm)).await
+}
+
+#[tauri::command]
+async fn add_chat_memory(
+    user_message: String,
+    pet_response: String,
+    memory_engine: tauri::State<'_, GlobalMemoryEngine>,
+) -> Result<(String, String), String> {
+    let mut memory = memory_engine.inner.lock().await;
+    let config = read_app_config_or_default();
+    memory.add_chat_pair(&user_message, &pet_response, Some(&config.llm)).await
+}
+
+#[tauri::command]
+async fn search_memories(
+    query: String,
+    limit: usize,
+    memory_engine: tauri::State<'_, GlobalMemoryEngine>,
+) -> Result<Vec<String>, String> {
+    let mut memory = memory_engine.inner.lock().await;
+    Ok(memory.retrieve(&query, limit))
+}
+
+#[tauri::command]
+async fn get_memory_stats(memory_engine: tauri::State<'_, GlobalMemoryEngine>) -> Result<MemoryStats, String> {
+    let memory = memory_engine.inner.lock().await;
+    Ok(memory.stats())
+}
+
+#[tauri::command]
+async fn build_memory_prompt(
+    query: String,
+    limit: usize,
+    memory_engine: tauri::State<'_, GlobalMemoryEngine>,
+) -> Result<String, String> {
+    let mut memory = memory_engine.inner.lock().await;
+    Ok(memory.build_memory_prompt(&query, limit))
+}
+
 fn open_onboarding_window(app: &tauri::AppHandle) -> Result<(), String> {
     const ONBOARDING_WINDOW_LABEL: &str = "onboarding";
 
@@ -1084,6 +1157,7 @@ pub fn run() {
             audio_recorder: Mutex::new(AudioRecorder::new()),
         })
         .manage(GlobalReActEngine::default())
+        .manage(GlobalMemoryEngine::new())
         .invoke_handler(tauri::generate_handler![
             save_window_scale,
             load_window_scale,
@@ -1115,6 +1189,12 @@ pub fn run() {
             reincarnate_pet,
             reset_pet_growth,
             set_onboarding_completed,
+            // 记忆系统 commands
+            add_memory,
+            add_chat_memory,
+            search_memories,
+            get_memory_stats,
+            build_memory_prompt,
         ])
         .setup(|app| {
             build_tray(app)?;
