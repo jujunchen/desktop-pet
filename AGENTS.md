@@ -5,7 +5,7 @@
 - `src/assets/pets/`: pet animation assets (GIFs) grouped by pet/action.
 - `src-tauri/src/`: Rust backend for desktop integration, config, and LLM/tool modules (`llm/tools/*`).
 - `src-tauri/capabilities/` and `src-tauri/gen/schemas/`: Tauri capability and schema definitions.
-- `资源/`: product and design documents (Chinese) used for planning.
+- `doc/`: product and design documents (Chinese) used for planning.
 - Build outputs: `dist/` (frontend) and Tauri target artifacts.
 
 ## Build, Test, and Development Commands
