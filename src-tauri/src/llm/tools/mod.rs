@@ -39,4 +39,7 @@ pub fn register_builtin_tools(registry: &mut ToolRegistry) {
         TakeScreenshotTool,  // 屏幕截图
         PetControlTool,      // 宠物行为控制
     );
+
+    // 注册技能工具
+    crate::skills::tool::register_skill_tools(registry);
 }

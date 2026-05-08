@@ -18,8 +18,75 @@ import {
   microphoneAvailable
 } from './composables/useAsr'
 import { loadGrowthState } from './composables/usePetGrowth'
+import { useSkills, type Skill, type SkillSearchResult } from './composables/useSkills'
 
 const config = ref<AppConfig | null>(null)
+
+const {
+  skills,
+  loading: skillsLoading,
+  searchResults,
+  searchLoading,
+  searchError,
+  listSkills,
+  installSkill,
+  uninstallSkill,
+  enableSkill,
+  disableSkill,
+  searchSkills,
+} = useSkills()
+
+const skillSearchQuery = ref('')
+const expandedSkill = ref<string | null>(null)
+const installingSkill = ref(false)
+const uninstallingSkill = ref<string | null>(null)
+
+async function doSkillSearch(): Promise<void> {
+  if (!skillSearchQuery.value.trim()) return
+  await searchSkills(skillSearchQuery.value)
+}
+
+async function doInstallSkill(packageName: string): Promise<void> {
+  if (installingSkill.value) return
+  installingSkill.value = true
+  try {
+    await installSkill(packageName)
+    skillSearchQuery.value = ''
+    withMessage(`技能安装成功！`, 'success')
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e)
+    withMessage(`安装失败: ${message}`, 'error')
+  } finally {
+    installingSkill.value = false
+  }
+}
+
+async function doUninstallSkill(name: string): Promise<void> {
+  if (uninstallingSkill.value) return
+  uninstallingSkill.value = name
+  try {
+    await uninstallSkill(name)
+    withMessage(`已卸载技能: ${name}`, 'success')
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e)
+    withMessage(`卸载失败: ${message}`, 'error')
+  } finally {
+    uninstallingSkill.value = null
+  }
+}
+
+async function toggleSkillEnabled(skill: Skill): Promise<void> {
+  try {
+    if (skill.enabled) {
+      await disableSkill(skill.name)
+    } else {
+      await enableSkill(skill.name)
+    }
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e)
+    withMessage(`操作失败: ${message}`, 'error')
+  }
+}
 const loading = ref(true)
 const saving = ref(false)
 const saveMessage = ref('')
@@ -73,6 +140,7 @@ onMounted(async () => {
     config.value = await loadConfig()
     await initAsrEngine()
     await checkAsrReady()
+    await listSkills()
   } finally {
     loading.value = false
   }
@@ -254,6 +322,76 @@ function revealLlmApiKeyTemporarily(): void {
         <button class="btn reset-btn" @click="showResetConfirm = true">
           重新领养（重置宠物状态）
         </button>
+      </section>
+
+      <section class="card">
+        <h2>技能管理</h2>
+        <small class="field-hint">从 skills.sh 生态安装技能，扩展宠物的能力。</small>
+
+        <div class="search-row">
+          <input
+            v-model="skillSearchQuery"
+            placeholder="搜索技能..."
+            @keyup.enter="doSkillSearch"
+          />
+          <button class="small-btn" :disabled="searchLoading" @click="doSkillSearch">
+            {{ searchLoading ? '搜索中...' : '搜索' }}
+          </button>
+        </div>
+
+        <div v-if="searchError" class="search-error">
+          <span class="error-icon">⚠️</span>
+          <span class="error-text">{{ searchError }}</span>
+        </div>
+
+        <div v-if="searchResults.length > 0" class="search-results">
+          <div class="result-item" v-for="result in searchResults" :key="result.package">
+            <div class="result-info">
+              <div class="result-name">{{ result.name }}</div>
+              <div class="result-package">{{ result.package }}</div>
+              <div class="result-desc">{{ result.description }}</div>
+            </div>
+            <button class="small-btn" :disabled="installingSkill" @click="doInstallSkill(result.package)">
+              安装
+            </button>
+          </div>
+        </div>
+
+        <div class="skills-list">
+          <div v-if="skills.length === 0" class="empty-skills">暂无已安装的技能</div>
+          <div v-for="skill in skills" :key="skill.name" class="skill-item">
+            <div class="skill-header" @click="expandedSkill = expandedSkill === skill.name ? null : skill.name">
+              <div class="skill-info">
+                <span class="skill-name">{{ skill.name }}</span>
+                <span class="skill-version" v-if="skill.version">v{{ skill.version }}</span>
+              </div>
+              <div class="skill-actions" @click.stop>
+                <button
+                  class="toggle-btn"
+                  :class="{ enabled: skill.enabled }"
+                  @click="toggleSkillEnabled(skill)"
+                >
+                  {{ skill.enabled ? '启用' : '禁用' }}
+                </button>
+                <button
+                  class="danger-btn small-btn"
+                  :disabled="uninstallingSkill === skill.name"
+                  @click="doUninstallSkill(skill.name)"
+                >
+                  {{ uninstallingSkill === skill.name ? '...' : '删除' }}
+                </button>
+              </div>
+            </div>
+            <div v-if="expandedSkill === skill.name" class="skill-detail">
+              <p class="skill-desc">{{ skill.description }}</p>
+              <p v-if="skill.author" class="skill-author">作者: {{ skill.author }}</p>
+              <div v-if="skill.content" class="skill-content">
+                <strong>使用说明:</strong>
+                <pre>{{ skill.content }}</pre>
+              </div>
+            </div>
+          </div>
+        </div>
       </section>
 
       <section class="card">
@@ -602,6 +740,191 @@ select {
   font-weight: 500;
   background: #e3f2fd;
   color: #1565c0;
+}
+
+.search-row {
+  display: flex;
+  gap: 8px;
+}
+
+.search-row input {
+  flex: 1;
+}
+
+.search-error {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  background: #fff3cd;
+  border: 1px solid #ffecb5;
+  border-radius: 8px;
+  font-size: 12px;
+  color: #664d03;
+}
+
+.error-icon {
+  font-size: 14px;
+}
+
+.error-text {
+  flex: 1;
+  word-break: break-word;
+}
+
+.search-results {
+  display: grid;
+  gap: 8px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.result-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  background: #f8fafc;
+  border-radius: 8px;
+  gap: 10px;
+}
+
+.result-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.result-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: #253544;
+}
+
+.result-package {
+  font-size: 11px;
+  color: #7d8c9b;
+}
+
+.result-desc {
+  font-size: 12px;
+  color: #5b6e7f;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.skills-list {
+  display: grid;
+  gap: 8px;
+}
+
+.empty-skills {
+  text-align: center;
+  padding: 16px;
+  color: #7d8c9b;
+  font-size: 12px;
+}
+
+.skill-item {
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.skill-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  background: #f8fafc;
+  cursor: pointer;
+  gap: 10px;
+}
+
+.skill-header:hover {
+  background: #f1f5f9;
+}
+
+.skill-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.skill-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: #253544;
+}
+
+.skill-version {
+  font-size: 11px;
+  color: #7d8c9b;
+}
+
+.skill-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.toggle-btn {
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  color: #64748b;
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.toggle-btn.enabled {
+  background: #e6f9ef;
+  border-color: #18a058;
+  color: #18a058;
+}
+
+.danger-btn {
+  background: #fff0f0;
+  border-color: #ffcdd2;
+  color: #c62828;
+}
+
+.skill-detail {
+  padding: 10px 12px;
+  background: #fff;
+  border-top: 1px solid #e2e8f0;
+}
+
+.skill-desc {
+  margin: 0 0 6px;
+  font-size: 12px;
+  color: #5b6e7f;
+  line-height: 1.4;
+}
+
+.skill-author {
+  margin: 0 0 6px;
+  font-size: 11px;
+  color: #7d8c9b;
+}
+
+.skill-content {
+  margin-top: 8px;
+  font-size: 11px;
+  color: #5b6e7f;
+}
+
+.skill-content pre {
+  margin: 4px 0 0;
+  padding: 8px;
+  background: #f8fafc;
+  border-radius: 6px;
+  font-size: 11px;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 150px;
+  overflow-y: auto;
 }
 
 @media (max-width: 560px) {

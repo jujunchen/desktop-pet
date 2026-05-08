@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::{fs, path::PathBuf, time::SystemTime};
 
-const APP_DIR: &str = "desktop-pet";
+pub const APP_DIR: &str = "desktop-pet";
 const APP_CONFIG_FILE: &str = "config.json";
 const LEGACY_WINDOW_FILE: &str = "window.json";
 const SCALE_MIN: f64 = 0.1;
@@ -216,7 +216,7 @@ fn default_life_stage() -> LifeStage {
     LifeStage::Adult
 }
 
-fn now_timestamp() -> i64 {
+pub fn now_timestamp() -> i64 {
     SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)

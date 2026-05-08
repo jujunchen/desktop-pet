@@ -29,6 +29,12 @@
     "set_main_window_scale",
     "show_pet_context_menu",
     "get_system_idle_ms",
-    "chat_with_llm_stream"
+    "chat_with_llm_stream",
+    "skill_list",
+    "skill_install",
+    "skill_uninstall",
+    "skill_enable",
+    "skill_disable",
+    "skill_search"
   ]
 }

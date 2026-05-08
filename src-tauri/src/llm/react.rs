@@ -81,8 +81,23 @@ impl ReActEngine {
             String::new()
         };
 
+        // 加载已启用的技能
+        let skills_prompt = match crate::skills::get_enabled_skills() {
+            Ok(skills) if !skills.is_empty() => {
+                let mut s = String::from("\n\n【已启用的技能】\n");
+                for skill in skills {
+                    s.push_str(&format!("- {}: {}\n", skill.name, skill.description));
+                    if !skill.content.is_empty() {
+                        s.push_str(&format!("  使用说明：{}\n", skill.content));
+                    }
+                }
+                s
+            }
+            _ => String::new(),
+        };
+
         format!(
-            "{personality_prompt}{memory_prompt}
+            "{personality_prompt}{memory_prompt}{skills_prompt}
 
 你可以使用以下工具来帮助回答问题：
 

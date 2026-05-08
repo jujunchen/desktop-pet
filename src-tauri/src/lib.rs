@@ -3,6 +3,7 @@ mod asr;
 mod config;
 mod llm;
 mod memory;
+mod skills;
 
 use audio::AudioRecorder;
 use asr::{create_engine, AsrEngine};
@@ -895,6 +896,38 @@ async fn build_memory_prompt(
     Ok(memory.build_memory_prompt(&query, limit))
 }
 
+// ==================== 技能系统 commands ====================
+
+#[tauri::command]
+fn skill_list() -> Result<Vec<skills::Skill>, String> {
+    skills::list_skills()
+}
+
+#[tauri::command]
+async fn skill_install(package: String) -> Result<skills::Skill, String> {
+    skills::install_skill(&package).await
+}
+
+#[tauri::command]
+fn skill_uninstall(name: String) -> Result<(), String> {
+    skills::uninstall_skill(&name)
+}
+
+#[tauri::command]
+fn skill_enable(name: String) -> Result<(), String> {
+    skills::enable_skill(&name)
+}
+
+#[tauri::command]
+fn skill_disable(name: String) -> Result<(), String> {
+    skills::disable_skill(&name)
+}
+
+#[tauri::command]
+async fn skill_search(query: String) -> Result<Vec<skills::SkillSearchResult>, String> {
+    skills::search_skills(&query).await
+}
+
 fn open_onboarding_window(app: &tauri::AppHandle) -> Result<(), String> {
     const ONBOARDING_WINDOW_LABEL: &str = "onboarding";
 
@@ -1195,6 +1228,13 @@ pub fn run() {
             search_memories,
             get_memory_stats,
             build_memory_prompt,
+            // 技能系统 commands
+            skill_list,
+            skill_install,
+            skill_uninstall,
+            skill_enable,
+            skill_disable,
+            skill_search,
         ])
         .setup(|app| {
             build_tray(app)?;
