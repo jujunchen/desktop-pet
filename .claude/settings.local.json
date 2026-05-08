@@ -43,7 +43,8 @@
       "Bash(sips *)",
       "Bash(cargo build *)",
       "Bash(curl -s http://localhost:1420)",
-      "Bash(cargo add *)"
+      "Bash(cargo add *)",
+      "Bash(npx skills *)"
     ]
   }
 }
