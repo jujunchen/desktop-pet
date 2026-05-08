@@ -1,6 +1,7 @@
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { ref } from 'vue'
+import { addChatMemory } from './useMemory'
 
 export interface ChatHistoryMessage {
   role: 'user' | 'assistant'
@@ -45,8 +46,19 @@ export async function sendTextMessage(text: string, history: ChatHistoryMessage[
     currentResponse.value += event.payload
   })
 
-  unlistenDone = await listen<{}>('voice://chat-done', () => {
+  unlistenDone = await listen<{}>('voice://chat-done', async () => {
     console.log('[DEBUG] 聊天完成，最终回复:', currentResponse.value)
+
+    // 保存这一轮对话到记忆
+    if (text.trim() && currentResponse.value.trim()) {
+      try {
+        await addChatMemory(text, currentResponse.value)
+        console.log('[DEBUG] 聊天记录保存成功')
+      } catch (err) {
+        console.error('[DEBUG] 保存聊天记录失败:', err)
+      }
+    }
+
     isLoading.value = false
     cleanupListeners()
   })
