@@ -587,16 +587,16 @@ fn update_growth_state_internal(config: &mut AppConfig) -> (bool, Option<LifeSta
         return (false, None);
     }
 
-    // 饥饿值衰减 -0.5/分钟
-    config.pet.growth.hunger = (config.pet.growth.hunger - 0.5 * elapsed_minutes).max(0.0);
+    // 饥饿值衰减 -0.1/分钟（休闲模式：约13小时耗尽）
+    config.pet.growth.hunger = (config.pet.growth.hunger - 0.1 * elapsed_minutes).max(0.0);
 
-    // 快乐值衰减 -0.2/分钟，饥饿时加速
+    // 快乐值衰减 -0.05/分钟，饥饿时加速
     let hunger_factor = if config.pet.growth.hunger < 20.0 { 2.0 } else { 1.0 };
-    config.pet.growth.happiness = (config.pet.growth.happiness - 0.2 * hunger_factor * elapsed_minutes).max(0.0);
+    config.pet.growth.happiness = (config.pet.growth.happiness - 0.05 * hunger_factor * elapsed_minutes).max(0.0);
 
-    // 生命值：饥饿值<20时衰减
+    // 生命值：饥饿值<20时衰减 -0.05/分钟（约33小时耗尽）
     if config.pet.growth.hunger < 20.0 {
-        config.pet.growth.health = (config.pet.growth.health - 0.3 * elapsed_minutes).max(0.0);
+        config.pet.growth.health = (config.pet.growth.health - 0.05 * elapsed_minutes).max(0.0);
     }
 
     // 在线时亲密度缓慢增加 +0.1/分钟

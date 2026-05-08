@@ -319,7 +319,7 @@ impl ReActEngine {
         eprintln!("[LLM] 最终答案: {}", final_answer);
         for c in final_answer.chars() {
             let _ = app.emit("voice://chat-stream", c.to_string());
-            tokio::time::sleep(tokio::time::Duration::from_millis(20)).await;
+            tokio::time::sleep(tokio::time::Duration::from_millis(2)).await;
         }
 
         let _ = app.emit("voice://chat-done", ());
