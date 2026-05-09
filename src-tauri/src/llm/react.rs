@@ -81,23 +81,40 @@ impl ReActEngine {
             String::new()
         };
 
-        // 加载已启用的技能
-        let skills_prompt = match crate::skills::get_enabled_skills() {
+        // ========== 三层技能加载架构 ==========
+        // 第一层：技能索引（始终注入，只有名称+描述）
+        let skills_index = match crate::skills::get_enabled_skills() {
             Ok(skills) if !skills.is_empty() => {
-                let mut s = String::from("\n\n【已启用的技能】\n");
-                for skill in skills {
+                let mut s = String::from("\n\n【已安装技能索引】\n");
+                for skill in &skills {
                     s.push_str(&format!("- {}: {}\n", skill.name, skill.description));
-                    if !skill.content.is_empty() {
-                        s.push_str(&format!("  使用说明：{}\n", skill.content));
-                    }
                 }
+                s.push_str("\n💡 提示：当用户问题涉及某个技能时，我会自动加载该技能的详细说明。\n如需主动加载技能详情，可以使用 load_skill 工具。\n");
                 s
             }
             _ => String::new(),
         };
 
+        // 第二层：动态检索相关技能（注入 Top-2 技能的完整内容）
+        let relevant_skills = match crate::skills::get_enabled_skills() {
+            Ok(skills) if !skills.is_empty() => {
+                let relevant = crate::skills::retrieve_relevant_skills(user_query, &skills, 2);
+                if !relevant.is_empty() {
+                    let mut s = String::from("\n\n【自动加载的相关技能】\n");
+                    for skill in relevant {
+                        s.push_str(&format!("## {}: {}\n", skill.name, skill.description));
+                        s.push_str(&format!("{}\n\n", skill.content));
+                    }
+                    s
+                } else {
+                    String::new()
+                }
+            }
+            _ => String::new(),
+        };
+
         format!(
-            "{personality_prompt}{memory_prompt}{skills_prompt}
+            "{personality_prompt}{memory_prompt}{skills_index}{relevant_skills}
 
 你可以使用以下工具来帮助回答问题：
 
@@ -151,8 +168,9 @@ impl ReActEngine {
     /// 检测是否包含工具调用
     pub fn detect_tool_call(content: &str) -> Option<(String, Value)> {
         // 查找 ```tool_call 标记
-        if let Some(start) = content.find("```tool_call") {
-            let rest = &content[start + 11..];
+        const TOOL_CALL_MARKER: &str = "```tool_call";
+        if let Some(start) = content.find(TOOL_CALL_MARKER) {
+            let rest = &content[start + TOOL_CALL_MARKER.len()..];
             if let Some(end) = rest.find("```") {
                 let json_str = rest[..end].trim();
                 eprintln!("[ReAct] 解析工具调用JSON: '{}'", json_str);
@@ -344,5 +362,62 @@ impl ReActEngine {
             final_answer,
             total_time: start_time.elapsed(),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn test_detect_tool_call_with_correct_marker() {
+        let content = r#"Some text
+```tool_call
+{
+  "name": "install_skill",
+  "parameters": {"package": "test"}
+}
+```
+More text"#;
+
+        let result = ReActEngine::detect_tool_call(content);
+        assert!(result.is_some());
+        let (name, params) = result.unwrap();
+        assert_eq!(name, "install_skill");
+        assert_eq!(params, json!({"package": "test"}));
+    }
+
+    #[test]
+    fn test_detect_tool_call_no_extra_chars() {
+        // 验证解析后的JSON没有多余的开头字符（关键测试！修复前这里会因多了个'l'而失败）
+        let content = r#"```tool_call
+{
+  "name": "search_skills",
+  "parameters": {"query": "lark"}
+}
+```"#;
+
+        let result = ReActEngine::detect_tool_call(content);
+        assert!(result.is_some());
+        let (name, _) = result.unwrap();
+        assert_eq!(name, "search_skills");
+    }
+
+    #[test]
+    fn test_detect_tool_call_missing() {
+        let content = "Just normal text without any tool call";
+        let result = ReActEngine::detect_tool_call(content);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_detect_tool_call_invalid_json() {
+        let content = r#"```tool_call
+not valid json
+```"#;
+        let result = ReActEngine::detect_tool_call(content);
+        // 无效JSON应该返回None
+        assert!(result.is_none());
     }
 }
